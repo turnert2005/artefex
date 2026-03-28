@@ -1,4 +1,4 @@
-"""Degradation detection engine - the core of neural-enhance."""
+"""Degradation detection engine - the core of artefex."""
 
 from pathlib import Path
 
@@ -29,6 +29,8 @@ class DegradationAnalyzer:
             self._detect_screenshot_artifacts,
             self._detect_multiple_compressions,
             self._detect_noise,
+            self._detect_watermark,
+            self._detect_exif_stripping,
         ]
 
         for detector in detectors:
@@ -408,4 +410,171 @@ class DegradationAnalyzer:
             severity=severity,
             detail=f"Estimated noise level (sigma): {noise_estimate:.2f}",
             category="noise",
+        )
+
+    def _detect_watermark(
+        self, img: Image.Image, arr: np.ndarray, result: AnalysisResult
+    ) -> Degradation | None:
+        """Detect watermark patterns by looking for semi-transparent overlays and repeating structures."""
+        if len(arr.shape) < 3 or arr.shape[2] < 3:
+            return None
+
+        h, w = arr.shape[:2]
+        if h < 64 or w < 64:
+            return None
+
+        gray = np.mean(arr[:, :, :3].astype(np.float64), axis=2)
+
+        indicators = 0
+        details = []
+
+        # Check for low-contrast repeating patterns (tiled watermarks)
+        # Compute autocorrelation at large offsets to detect tiling
+        quarter_h, quarter_w = h // 4, w // 4
+        if quarter_h > 16 and quarter_w > 16:
+            center_block = gray[quarter_h : 2 * quarter_h, quarter_w : 2 * quarter_w]
+            right_block = gray[quarter_h : 2 * quarter_h, 2 * quarter_w : 3 * quarter_w]
+            below_block = gray[2 * quarter_h : 3 * quarter_h, quarter_w : 2 * quarter_w]
+
+            min_h_r = min(center_block.shape[0], right_block.shape[0])
+            min_w_r = min(center_block.shape[1], right_block.shape[1])
+            min_h_b = min(center_block.shape[0], below_block.shape[0])
+            min_w_b = min(center_block.shape[1], below_block.shape[1])
+
+            if min_h_r > 8 and min_w_r > 8:
+                cb = center_block[:min_h_r, :min_w_r]
+                rb = right_block[:min_h_r, :min_w_r]
+                corr_h = np.corrcoef(cb.flatten(), rb.flatten())[0, 1]
+                if corr_h > 0.95:
+                    indicators += 1
+                    details.append(f"horizontal tile correlation {corr_h:.3f}")
+
+            if min_h_b > 8 and min_w_b > 8:
+                cb2 = center_block[:min_h_b, :min_w_b]
+                bb = below_block[:min_h_b, :min_w_b]
+                corr_v = np.corrcoef(cb2.flatten(), bb.flatten())[0, 1]
+                if corr_v > 0.95:
+                    indicators += 1
+                    details.append(f"vertical tile correlation {corr_v:.3f}")
+
+        # Check for semi-transparent overlay: look for a narrow band in the
+        # luminance histogram that shouldn't be there (watermark text creates
+        # a secondary peak near the bright end)
+        hist, bin_edges = np.histogram(gray, bins=256, range=(0, 256))
+        hist_norm = hist / hist.sum()
+
+        # Look for suspicious secondary peaks in the upper luminance range
+        upper_hist = hist_norm[200:]
+        if len(upper_hist) > 5:
+            upper_mean = upper_hist.mean()
+            upper_peaks = np.sum(upper_hist > upper_mean * 3)
+            if upper_peaks >= 2:
+                indicators += 1
+                details.append(f"suspicious bright peaks in histogram ({upper_peaks} peaks)")
+
+        # Check for unnaturally uniform regions that could be watermark overlay
+        # Sample the center of the image where watermarks are commonly placed
+        center_region = gray[h // 3 : 2 * h // 3, w // 3 : 2 * w // 3]
+        local_stds = []
+        block_size = 16
+        for by in range(0, center_region.shape[0] - block_size, block_size):
+            for bx in range(0, center_region.shape[1] - block_size, block_size):
+                block = center_region[by : by + block_size, bx : bx + block_size]
+                local_stds.append(block.std())
+
+        if local_stds:
+            local_stds = np.array(local_stds)
+            # Watermarks create blocks with unusually low variance amidst normal content
+            low_var_ratio = np.sum(local_stds < 3.0) / len(local_stds)
+            high_var_ratio = np.sum(local_stds > 20.0) / len(local_stds)
+
+            if low_var_ratio > 0.15 and high_var_ratio > 0.15:
+                indicators += 1
+                details.append(
+                    f"mixed variance in center region "
+                    f"(low={low_var_ratio:.0%}, high={high_var_ratio:.0%})"
+                )
+
+        # Check alpha channel for watermark mask
+        if arr.shape[2] == 4:
+            alpha = arr[:, :, 3]
+            unique_alpha = np.unique(alpha)
+            # Watermarks often have specific alpha values that aren't 0 or 255
+            mid_alpha = unique_alpha[(unique_alpha > 10) & (unique_alpha < 245)]
+            if len(mid_alpha) > 0 and len(mid_alpha) < 20:
+                indicators += 2
+                details.append(f"alpha channel has {len(mid_alpha)} semi-transparent levels")
+
+        if indicators < 2:
+            return None
+
+        severity = min(1.0, indicators * 0.2)
+        confidence = min(1.0, indicators * 0.25)
+
+        return Degradation(
+            name="Watermark",
+            confidence=confidence,
+            severity=severity,
+            detail="; ".join(details),
+            category="overlay",
+        )
+
+    def _detect_exif_stripping(
+        self, img: Image.Image, arr: np.ndarray, result: AnalysisResult
+    ) -> Degradation | None:
+        """Detect if EXIF metadata has been stripped, suggesting the image was re-processed."""
+        is_jpeg = img.format == "JPEG" or str(result.file_path).lower().endswith((".jpg", ".jpeg"))
+        if not is_jpeg:
+            return None
+
+        indicators = 0
+        details = []
+
+        # Check for EXIF data
+        exif_data = None
+        try:
+            exif_data = img.getexif()
+        except Exception:
+            pass
+
+        has_exif = exif_data is not None and len(exif_data) > 0
+
+        if not has_exif:
+            indicators += 2
+            details.append("no EXIF metadata found in JPEG")
+
+            # A high-resolution JPEG with zero EXIF is suspicious -
+            # cameras and phones always embed EXIF
+            if img.size[0] >= 1000 or img.size[1] >= 1000:
+                indicators += 1
+                details.append(
+                    f"high resolution ({img.size[0]}x{img.size[1]}) but no camera metadata"
+                )
+        else:
+            # Check for partial EXIF (some fields stripped)
+            # Common camera tags: Make(271), Model(272), DateTime(306), ExifOffset(34665)
+            important_tags = {271: "Make", 272: "Model", 306: "DateTime", 34665: "ExifOffset"}
+            missing = [name for tag, name in important_tags.items() if tag not in exif_data]
+
+            if len(missing) >= 3:
+                indicators += 1
+                details.append(f"partial EXIF - missing: {', '.join(missing)}")
+
+        # Check for JFIF marker without EXIF (common after re-saving)
+        if "jfif_version" in result.metadata and not has_exif:
+            indicators += 1
+            details.append("has JFIF header but no EXIF (re-saved by software)")
+
+        if indicators < 2:
+            return None
+
+        severity = min(1.0, indicators * 0.2)
+        confidence = min(1.0, indicators * 0.3)
+
+        return Degradation(
+            name="EXIF Metadata Stripped",
+            confidence=confidence,
+            severity=severity,
+            detail="; ".join(details),
+            category="metadata",
         )

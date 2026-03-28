@@ -58,7 +58,7 @@ def render_report(file_path: Path, result: AnalysisResult) -> str:
             action = _recommend_action(d.name)
             lines.append(f"  Step {i}: {action}")
         lines.append("")
-        lines.append("  Run `neural-enhance restore <file>` to apply.")
+        lines.append("  Run `artefex restore <file>` to apply.")
 
     lines.append("")
     lines.append("=" * 60)
@@ -74,5 +74,7 @@ def _recommend_action(degradation_name: str) -> str:
         "Screenshot Artifacts": "Crop solid borders and remove UI remnants",
         "Multiple Re-compressions": "Apply heavy deblocking + detail reconstruction",
         "Noise": "Apply adaptive denoising while preserving edges",
+        "Watermark": "Attempt watermark removal via inpainting",
+        "EXIF Metadata Stripped": "Flag as re-processed (metadata cannot be recovered)",
     }
     return actions.get(degradation_name, f"Address {degradation_name}")
