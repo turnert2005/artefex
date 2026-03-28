@@ -16,7 +16,17 @@
       "Bash(cmd.exe /c \"where gh\")",
       "Bash(winget install:*)",
       "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI\")",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(python -m artefex.cli analyze test_batch/)",
+      "Bash(python -m artefex.cli restore test_batch/degraded.jpg --output test_batch/restored.jpg)",
+      "Bash(python -m artefex.cli compare test_batch/degraded.jpg test_batch/restored.jpg)",
+      "Bash(python -m artefex.cli analyze _test.jpg --json)",
+      "Bash(python -m artefex.cli models list)",
+      "Bash(rm -f _test.jpg)",
+      "Bash(python -c \"from artefex.web import app; print\\(''Web UI: OK''\\)\")",
+      "Bash(python -c \"from artefex.video import VideoAnalyzer; print\\(''Video: OK''\\)\")",
+      "Bash(python -m artefex.cli web)",
+      "Bash(python -m artefex.cli video-analyze test.mp4)"
     ]
   }
 }

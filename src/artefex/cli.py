@@ -20,6 +20,7 @@ app = typer.Typer(
 console = Console()
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif"}
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"}
 
 
 def _collect_images(path: Path) -> list[Path]:
@@ -414,6 +415,158 @@ def models(
     else:
         console.print(f"[red]Error:[/red] Unknown action: {action}. Use 'list' or 'import'.")
         raise typer.Exit(1)
+
+
+@app.command(name="video-analyze")
+def video_analyze(
+    path: Path = typer.Argument(..., help="Video file to analyze"),
+    samples: int = typer.Option(10, "--samples", "-s", help="Number of frames to sample"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Analyze a video file by sampling frames for degradation."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        console.print(f"[red]Error:[/red] Not a supported video format: {path.suffix}")
+        raise typer.Exit(1)
+
+    try:
+        from artefex.video import VideoAnalyzer
+    except ImportError:
+        console.print("[red]Error:[/red] Video support requires: pip install artefex\\[video]")
+        raise typer.Exit(1)
+
+    va = VideoAnalyzer(sample_count=samples)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Sampling frames...", total=samples)
+
+        def on_progress(current, total):
+            progress.update(task, completed=current, total=total)
+
+        result = va.analyze(path, on_progress=on_progress)
+
+    if json:
+        data = {
+            "file": result.file_path,
+            "frame_count": result.frame_count,
+            "fps": result.fps,
+            "resolution": list(result.resolution),
+            "duration_seconds": round(result.duration_seconds, 2),
+            "codec": result.codec,
+            "overall_severity": round(result.overall_severity, 3),
+            "degradation_summary": {
+                name: {k: round(v, 3) if isinstance(v, float) else v for k, v in stats.items()}
+                for name, stats in result.degradation_summary.items()
+            },
+        }
+        print(json_mod.dumps(data, indent=2))
+        return
+
+    console.print(f"\n[bold]Video Analysis:[/bold] {path.name}\n")
+
+    info_table = Table(title="Video Info")
+    info_table.add_column("Property", style="bold")
+    info_table.add_column("Value")
+    info_table.add_row("Resolution", f"{result.resolution[0]}x{result.resolution[1]}")
+    info_table.add_row("Frames", str(result.frame_count))
+    info_table.add_row("FPS", f"{result.fps:.2f}")
+    info_table.add_row("Duration", f"{result.duration_seconds:.1f}s")
+    info_table.add_row("Codec", result.codec)
+    info_table.add_row("Frames sampled", str(len(result.frame_results)))
+    console.print(info_table)
+
+    if not result.degradation_summary:
+        console.print("\n[green]No consistent degradation detected across frames.[/green]\n")
+        return
+
+    deg_table = Table(title="Degradation Summary (across sampled frames)")
+    deg_table.add_column("Degradation", style="bold")
+    deg_table.add_column("Frequency", justify="right")
+    deg_table.add_column("Avg Severity", justify="right")
+    deg_table.add_column("Avg Confidence", justify="right")
+
+    for name, stats in sorted(result.degradation_summary.items(), key=lambda x: x[1]["avg_severity"], reverse=True):
+        color = "red" if stats["avg_severity"] > 0.7 else "yellow" if stats["avg_severity"] > 0.4 else "green"
+        deg_table.add_row(
+            name,
+            f"{stats['frequency']:.0%}",
+            f"[{color}]{stats['avg_severity']:.0%}[/{color}]",
+            f"{stats['avg_confidence']:.0%}",
+        )
+
+    console.print(deg_table)
+    console.print()
+
+
+@app.command(name="video-restore")
+def video_restore(
+    path: Path = typer.Argument(..., help="Video file to restore"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output video path"),
+    no_neural: bool = typer.Option(False, "--no-neural", help="Disable neural models"),
+):
+    """Restore a video file frame by frame."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    try:
+        from artefex.video import VideoRestorer
+    except ImportError:
+        console.print("[red]Error:[/red] Video support requires: pip install artefex\\[video]")
+        raise typer.Exit(1)
+
+    out_path = output or path.with_stem(f"{path.stem}_restored")
+    if not out_path.suffix:
+        out_path = out_path.with_suffix(".mp4")
+
+    restorer = VideoRestorer(use_neural=not no_neural)
+
+    console.print(f"\n[bold]Restoring video:[/bold] {path.name}\n")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Processing frames...", total=100)
+
+        def on_progress(current, total):
+            progress.update(task, completed=current, total=total, description=f"Frame {current}/{total}...")
+
+        info = restorer.restore(path, out_path, on_progress=on_progress)
+
+    console.print(f"\n[green]Restored {info['frames_processed']} frames[/green]")
+    if info.get("degradations_fixed"):
+        console.print(f"[dim]Fixed: {', '.join(info['degradations_fixed'])}[/dim]")
+    console.print(f"[green]Saved to:[/green] {info.get('output_path', out_path)}\n")
+
+
+@app.command()
+def web(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host to bind to"),
+    port: int = typer.Option(8787, "--port", "-p", help="Port to listen on"),
+):
+    """Launch the Artefex web UI."""
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[red]Error:[/red] Web UI requires: pip install artefex\\[web]")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold]Artefex Web UI[/bold]")
+    console.print(f"Open [link=http://{host}:{port}]http://{host}:{port}[/link] in your browser\n")
+    uvicorn.run("artefex.web:app", host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

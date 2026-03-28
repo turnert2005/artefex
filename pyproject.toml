@@ -30,6 +30,17 @@ dependencies = [
 neural = [
     "onnxruntime>=1.16.0",
 ]
+web = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "python-multipart>=0.0.6",
+]
+video = [
+    "opencv-python>=4.8.0",
+]
+all = [
+    "artefex[neural,web,video]",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
