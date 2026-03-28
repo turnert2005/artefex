@@ -395,6 +395,76 @@ def restore(
     console.print(f"\n[green]{restored_count}/{len(files)} images restored to:[/green] {out_dir}\n")
 
 
+@app.command(name="restore-preview")
+def restore_preview(
+    path: Path = typer.Argument(..., help="Image file to preview restoration steps"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output directory for step images"),
+):
+    """Show what each restoration step changes by saving intermediate images."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.restore import RestorationPipeline
+    from PIL import Image as PILImage
+    import numpy as np
+
+    analyzer = DegradationAnalyzer()
+    result = analyzer.analyze(path)
+
+    if not result.degradations:
+        console.print("[green]No degradation detected.[/green] Nothing to preview.")
+        return
+
+    out_dir = output or path.parent / f"{path.stem}_steps"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"\n[bold]Restoration Preview:[/bold] {path.name}")
+    console.print(f"[dim]{len(result.degradations)} degradation(s) detected[/dim]\n")
+
+    # Save original
+    orig = PILImage.open(path).convert("RGB")
+    orig.save(out_dir / "00_original.png")
+
+    # Apply each fix one at a time
+    pipeline = RestorationPipeline(use_neural=False)
+    img = orig.copy()
+    ordered = sorted(result.degradations, key=lambda d: d.severity)
+
+    table = Table(title="Step-by-Step Preview")
+    table.add_column("Step", style="dim", width=4)
+    table.add_column("Fix Applied", style="bold")
+    table.add_column("File")
+    table.add_column("Pixels Changed", justify="right")
+
+    prev_arr = np.array(img, dtype=np.float64)
+
+    for i, degradation in enumerate(ordered, 1):
+        restorer = pipeline._restorers.get(degradation.name)
+        if restorer:
+            img = restorer(img, degradation)
+
+            step_name = f"{i:02d}_{degradation.name.lower().replace(' ', '_').replace('/', '_')}"
+            step_path = out_dir / f"{step_name}.png"
+            img.save(step_path)
+
+            # Compute what changed
+            curr_arr = np.array(img, dtype=np.float64)
+            diff = np.abs(curr_arr - prev_arr)
+            changed = np.any(diff > 2, axis=2).sum()
+            total = diff.shape[0] * diff.shape[1]
+            pct = changed / total
+
+            table.add_row(str(i), degradation.name, step_path.name, f"{pct:.1%}")
+            prev_arr = curr_arr
+
+    # Save final
+    img.save(out_dir / "final_restored.png")
+
+    console.print(table)
+    console.print(f"\n[green]{len(ordered)} steps saved to:[/green] {out_dir}\n")
+
+
 @app.command()
 def compare(
     original: Path = typer.Argument(..., help="Original (degraded) image"),
@@ -463,6 +533,80 @@ def compare(
     diff_img.save(diff_path)
 
     console.print(f"\n[green]Difference heatmap saved to:[/green] {diff_path}\n")
+
+
+@app.command()
+def dashboard(
+    path: Path = typer.Argument(..., help="Directory of images to analyze"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output HTML file"),
+):
+    """Generate an HTML dashboard summarizing all images in a directory."""
+    if not path.exists() or not path.is_dir():
+        console.print(f"[red]Error:[/red] Directory not found: {path}")
+        raise typer.Exit(1)
+
+    files = _collect_images(path)
+    if not files:
+        console.print(f"[red]Error:[/red] No image files found in: {path}")
+        raise typer.Exit(1)
+
+    from artefex.dashboard import generate_dashboard
+
+    out_path = output or path / "artefex_dashboard.html"
+
+    console.print(f"\n[bold]Generating dashboard for {len(files)} images...[/bold]\n")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Analyzing...", total=len(files))
+
+        def on_progress(current, total):
+            progress.update(task, completed=current, total=total)
+
+        generate_dashboard(files, out_path, on_progress=on_progress)
+
+    console.print(f"\n[green]Dashboard saved to:[/green] {out_path}\n")
+
+
+@app.command()
+def heatmap(
+    path: Path = typer.Argument(..., help="Image file to generate heatmap for"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path for heatmap image"),
+    patch_size: int = typer.Option(32, "--patch-size", "-p", help="Patch size for analysis grid"),
+):
+    """Generate a spatial degradation heatmap showing where damage is worst."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.heatmap import generate_heatmap
+
+    out_path = output or path.with_stem(f"{path.stem}_heatmap")
+    if not out_path.suffix:
+        out_path = out_path.with_suffix(".png")
+
+    console.print(f"\n[bold]Generating heatmap:[/bold] {path.name}\n")
+
+    stats = generate_heatmap(path, out_path, patch_size=patch_size)
+
+    table = Table()
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", justify="right")
+
+    table.add_row("Grid size", f"{stats['grid_size'][1]}x{stats['grid_size'][0]} patches")
+    table.add_row("Patch size", f"{stats['patch_size']}px")
+    table.add_row("[green]Healthy regions[/green]", f"{stats['healthy_pct']:.0%}")
+    table.add_row("[yellow]Moderate degradation[/yellow]", f"{stats['moderate_pct']:.0%}")
+    table.add_row("[red]Severe degradation[/red]", f"{stats['severe_pct']:.0%}")
+    table.add_row("Worst region", f"({stats['worst_region'][0]}, {stats['worst_region'][1]})")
+
+    console.print(table)
+    console.print(f"\n[green]Heatmap saved to:[/green] {out_path}\n")
 
 
 @app.command()

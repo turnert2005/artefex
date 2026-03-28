@@ -36,7 +36,10 @@
       "Bash(rm -f _test.jpg _test.html)",
       "Bash(python -m artefex --help)",
       "Bash(python -m artefex timeline _t.jpg)",
-      "Bash(rm -f _t.jpg)"
+      "Bash(rm -f _t.jpg)",
+      "Bash(python -m artefex heatmap _h.jpg)",
+      "Bash(python -m artefex restore-preview _h.jpg)",
+      "Bash(rm -rf _h.jpg _h_heatmap.png _h_steps)"
     ]
   }
 }

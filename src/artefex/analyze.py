@@ -38,6 +38,16 @@ class DegradationAnalyzer:
             if degradation:
                 result.degradations.append(degradation)
 
+        # Run AI-generated detection
+        try:
+            from artefex.detect_aigen import AIGeneratedDetector
+            ai_det = AIGeneratedDetector()
+            ai_deg = ai_det.detect(img, arr)
+            if ai_deg:
+                result.degradations.append(ai_deg)
+        except Exception:
+            pass
+
         # Run platform fingerprinting
         try:
             from artefex.fingerprint import detect_platform
