@@ -117,7 +117,6 @@ def _print_analysis_table(results, verbose: bool = False):
             console.print(f"  [dim]*[/dim] {d.name}: {d.detail}")
 
 
-@app.command()
 def _result_to_dict(result) -> dict:
     """Convert an AnalysisResult to a JSON-serializable dict."""
     return {
@@ -217,6 +216,7 @@ def analyze(
 def report(
     path: Path = typer.Argument(..., help="Image file or directory"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file or directory"),
+    html: bool = typer.Option(False, "--html", help="Generate HTML report with embedded images"),
 ):
     """Generate detailed forensic reports for one or more images."""
     if not path.exists():
@@ -232,12 +232,19 @@ def report(
 
     if len(files) == 1:
         results = analyzer.analyze(files[0])
-        report_text = render_report(files[0], results)
-        if output:
-            output.write_text(report_text)
-            console.print(f"[green]Report saved to:[/green] {output}")
+        if html:
+            from artefex.report_html import render_html_report
+            report_text = render_html_report(files[0], results)
+            out = output or files[0].with_suffix(".html")
+            out.write_text(report_text, encoding="utf-8")
+            console.print(f"[green]HTML report saved to:[/green] {out}")
         else:
-            console.print(report_text)
+            report_text = render_report(files[0], results)
+            if output:
+                output.write_text(report_text)
+                console.print(f"[green]Report saved to:[/green] {output}")
+            else:
+                console.print(report_text)
         return
 
     # Batch mode
@@ -257,9 +264,15 @@ def report(
         for file in files:
             progress.update(task, description=f"Reporting {file.name}...")
             results = analyzer.analyze(file)
-            report_text = render_report(file, results)
-            report_path = out_dir / f"{file.stem}_report.txt"
-            report_path.write_text(report_text)
+            if html:
+                from artefex.report_html import render_html_report
+                report_text = render_html_report(file, results)
+                report_path = out_dir / f"{file.stem}_report.html"
+                report_path.write_text(report_text, encoding="utf-8")
+            else:
+                report_text = render_report(file, results)
+                report_path = out_dir / f"{file.stem}_report.txt"
+                report_path.write_text(report_text)
             progress.advance(task)
 
     console.print(f"\n[green]{len(files)} reports saved to:[/green] {out_dir}\n")
@@ -637,6 +650,48 @@ def plugins():
     console.print(
         f"\n{len(info['detectors'])} detector(s), {len(info['restorers'])} restorer(s)\n"
     )
+
+
+@app.command()
+def watch(
+    path: Path = typer.Argument(..., help="Directory to watch for new images"),
+    auto_restore: bool = typer.Option(False, "--restore", "-r", help="Auto-restore new images"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output directory for restored images"),
+    interval: float = typer.Option(2.0, "--interval", "-i", help="Seconds between scans"),
+):
+    """Watch a directory and auto-analyze new images as they appear."""
+    if not path.exists() or not path.is_dir():
+        console.print(f"[red]Error:[/red] Directory not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.watch import DirectoryWatcher
+
+    watcher = DirectoryWatcher(
+        watch_dir=path,
+        output_dir=output,
+        auto_restore=auto_restore,
+    )
+
+    mode = "analyze + restore" if auto_restore else "analyze only"
+    console.print(f"\n[bold]Watching:[/bold] {path}")
+    console.print(f"[dim]Mode: {mode} | Interval: {interval}s | Ctrl+C to stop[/dim]\n")
+
+    def on_result(info):
+        severity = info["overall_severity"]
+        color = "red" if severity > 0.7 else "yellow" if severity > 0.4 else "green"
+        status = f"[{color}]{severity:.0%}[/{color}]"
+
+        if info["degradations"] == 0:
+            console.print(f"  [green]+[/green] {info['file']} - clean")
+        else:
+            top = info["top_issue"]
+            restored_msg = " -> restored" if info.get("restored") else ""
+            console.print(f"  [yellow]+[/yellow] {info['file']} - {info['degradations']} issues, severity {status}, top: {top}{restored_msg}")
+
+    try:
+        watcher.run(interval=interval, on_result=on_result)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Stopped watching.[/dim]\n")
 
 
 @app.command()
