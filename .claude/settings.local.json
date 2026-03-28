@@ -34,7 +34,9 @@
       "Bash(rm -f _a.jpg _b.png _a_vs__b_diff.png)",
       "Bash(python -m artefex report _test.jpg --html)",
       "Bash(rm -f _test.jpg _test.html)",
-      "Bash(python -m artefex --help)"
+      "Bash(python -m artefex --help)",
+      "Bash(python -m artefex timeline _t.jpg)",
+      "Bash(rm -f _t.jpg)"
     ]
   }
 }

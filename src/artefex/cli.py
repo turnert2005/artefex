@@ -75,6 +75,33 @@ def _uniform_filter(arr: "np.ndarray", size: int) -> "np.ndarray":
     return result[: arr.shape[0], : arr.shape[1]]
 
 
+def _download_url(url: str) -> Optional[Path]:
+    """Download an image from a URL to a temp file. Returns path or None."""
+    import tempfile
+    import urllib.request
+    import urllib.error
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Artefex/0.1"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            ext = ".jpg"
+            if "png" in content_type:
+                ext = ".png"
+            elif "webp" in content_type:
+                ext = ".webp"
+            elif "gif" in content_type:
+                ext = ".gif"
+
+            tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+            tmp.write(resp.read())
+            tmp.close()
+            return Path(tmp.name)
+    except (urllib.error.URLError, OSError) as e:
+        console.print(f"[red]Error downloading:[/red] {e}")
+        return None
+
+
 def _collect_images(path: Path) -> list[Path]:
     """Collect image files from a path (file or directory)."""
     if path.is_file():
@@ -140,19 +167,29 @@ def _result_to_dict(result) -> dict:
 
 @app.command()
 def analyze(
-    path: Path = typer.Argument(..., help="Image file or directory to analyze"),
+    path: str = typer.Argument(..., help="Image file, directory, or URL to analyze"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed detection info"),
     json: bool = typer.Option(False, "--json", "-j", help="Output results as JSON"),
 ):
     """Diagnose the degradation chain of an image or batch of images."""
-    if not path.exists():
-        console.print(f"[red]Error:[/red] Path not found: {path}")
-        raise typer.Exit(1)
+    tmp_downloaded = None
 
-    files = _collect_images(path)
-    if not files:
-        console.print(f"[red]Error:[/red] No image files found in: {path}")
-        raise typer.Exit(1)
+    # Check if it's a URL
+    if path.startswith("http://") or path.startswith("https://"):
+        console.print(f"[dim]Downloading image from URL...[/dim]")
+        tmp_downloaded = _download_url(path)
+        if tmp_downloaded is None:
+            raise typer.Exit(1)
+        files = [tmp_downloaded]
+    else:
+        p = Path(path)
+        if not p.exists():
+            console.print(f"[red]Error:[/red] Path not found: {path}")
+            raise typer.Exit(1)
+        files = _collect_images(p)
+        if not files:
+            console.print(f"[red]Error:[/red] No image files found in: {path}")
+            raise typer.Exit(1)
 
     analyzer = DegradationAnalyzer()
 
@@ -161,12 +198,16 @@ def analyze(
         for file in files:
             result = analyzer.analyze(file)
             results_list.append(_result_to_dict(result))
+        if tmp_downloaded:
+            tmp_downloaded.unlink(missing_ok=True)
         print(json_mod.dumps(results_list if len(files) > 1 else results_list[0], indent=2))
         return
 
     if len(files) == 1:
         console.print(f"\n[bold]Analyzing:[/bold] {files[0].name}\n")
         results = analyzer.analyze(files[0])
+        if tmp_downloaded:
+            tmp_downloaded.unlink(missing_ok=True)
         _print_analysis_table(results, verbose)
         console.print()
         return
@@ -422,6 +463,56 @@ def compare(
     diff_img.save(diff_path)
 
     console.print(f"\n[green]Difference heatmap saved to:[/green] {diff_path}\n")
+
+
+@app.command()
+def timeline(
+    path: Path = typer.Argument(..., help="Image file to visualize degradation timeline"),
+):
+    """Visualize the estimated degradation history as a timeline."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    analyzer = DegradationAnalyzer()
+    result = analyzer.analyze(path)
+
+    if not result.degradations:
+        console.print(f"\n[bold]{path.name}[/bold] - [green]No degradation detected. Clean image.[/green]\n")
+        return
+
+    console.print(f"\n[bold]Degradation Timeline:[/bold] {path.name}\n")
+    console.print(f"  [dim]Original capture[/dim]")
+    console.print(f"  [green]|[/green]")
+
+    # Order by severity (highest = earliest estimated degradation)
+    ordered = sorted(result.degradations, key=lambda d: d.severity, reverse=True)
+
+    for i, d in enumerate(ordered):
+        sev_pct = int(d.severity * 100)
+        conf_pct = int(d.confidence * 100)
+
+        if d.severity > 0.7:
+            color = "red"
+            bar_char = "#"
+        elif d.severity > 0.4:
+            color = "yellow"
+            bar_char = "="
+        else:
+            color = "green"
+            bar_char = "-"
+
+        bar = bar_char * max(1, sev_pct // 5)
+        console.print(f"  [{color}]|[/{color}]")
+        console.print(f"  [{color}]+-- {d.name}[/{color}]")
+        console.print(f"  [{color}]|[/{color}]   [{color}]{bar}[/{color}] {sev_pct}% severity, {conf_pct}% confidence")
+        console.print(f"  [{color}]|[/{color}]   [dim]{d.detail[:80]}[/dim]")
+
+    console.print(f"  [red]|[/red]")
+    console.print(f"  [red]v[/red]")
+    console.print(f"  [dim]Current state (overall severity: {result.overall_severity:.0%})[/dim]")
+    console.print()
+    console.print(f"  [dim]Run `artefex restore {path.name}` to reverse this chain.[/dim]\n")
 
 
 @app.command()

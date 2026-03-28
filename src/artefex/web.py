@@ -77,6 +77,7 @@ INDEX_HTML = """<!DOCTYPE html>
     margin-bottom: 1.5rem;
   }
   .preview-area.visible { display: grid; grid-template-columns: 1fr 1fr; }
+  .preview-area.slider-mode { display: block !important; }
   .preview-box {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -95,6 +96,62 @@ INDEX_HTML = """<!DOCTYPE html>
     width: 100%;
     display: block;
     image-rendering: auto;
+  }
+
+  .slider-container {
+    display: none;
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+    cursor: col-resize;
+  }
+  .slider-container.visible { display: block; }
+  .slider-container img {
+    width: 100%;
+    display: block;
+  }
+  .slider-overlay {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    overflow: hidden;
+  }
+  .slider-overlay img {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .slider-line {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: var(--accent);
+    z-index: 10;
+  }
+  .slider-handle {
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    margin-left: -14px;
+    z-index: 11;
+  }
+  .slider-labels {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.7rem;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
   }
 
   .results {
@@ -231,6 +288,19 @@ INDEX_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="slider-container" id="sliderContainer">
+    <img id="sliderBg" alt="Restored">
+    <div class="slider-overlay" id="sliderOverlay">
+      <img id="sliderFg" alt="Original">
+    </div>
+    <div class="slider-line" id="sliderLine"></div>
+    <div class="slider-handle" id="sliderHandle"></div>
+    <div class="slider-labels">
+      <span>Original</span>
+      <span>Restored</span>
+    </div>
+  </div>
+
   <div class="results" id="results">
     <div class="results-header">Degradation Chain</div>
     <table>
@@ -337,7 +407,8 @@ async function restoreImage() {
     const url = URL.createObjectURL(restoredBlob);
     document.getElementById('restoredImg').src = url;
     document.getElementById('downloadBtn').style.display = 'inline-block';
-    setStatus('Restoration complete.', 'success');
+    initSlider(document.getElementById('originalImg').src, url);
+    setStatus('Restoration complete. Drag the slider to compare.', 'success');
   } catch (err) {
     setStatus('Error restoring: ' + err.message, 'info');
   }
@@ -369,6 +440,41 @@ function downloadRestored() {
   const name = currentFile.name.replace(/\\.[^.]+$/, '') + '_restored.png';
   a.download = name;
   a.click();
+}
+
+// Before/after slider
+function initSlider(origUrl, restoredUrl) {
+  const container = document.getElementById('sliderContainer');
+  const overlay = document.getElementById('sliderOverlay');
+  const line = document.getElementById('sliderLine');
+  const handle = document.getElementById('sliderHandle');
+
+  document.getElementById('sliderBg').src = restoredUrl;
+  document.getElementById('sliderFg').src = origUrl;
+  container.classList.add('visible');
+
+  // Set initial position at 50%
+  const setPos = (pct) => {
+    overlay.style.width = pct + '%';
+    line.style.left = pct + '%';
+    handle.style.left = pct + '%';
+  };
+  setPos(50);
+
+  let dragging = false;
+  const onMove = (e) => {
+    if (!dragging) return;
+    const rect = container.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setPos(pct);
+  };
+  container.addEventListener('mousedown', () => { dragging = true; });
+  container.addEventListener('touchstart', () => { dragging = true; });
+  document.addEventListener('mouseup', () => { dragging = false; });
+  document.addEventListener('touchend', () => { dragging = false; });
+  container.addEventListener('mousemove', onMove);
+  container.addEventListener('touchmove', onMove);
 }
 </script>
 </body>

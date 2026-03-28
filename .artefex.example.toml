@@ -1,0 +1,25 @@
+# Artefex configuration
+# Copy this to .artefex.toml in your project root or ~/.artefex.toml for global config
+
+[analysis]
+# Uncomment to run only specific detectors
+# detectors = ["JPEG Compression", "Noise", "Color Shift"]
+min_confidence = 0.15
+min_severity = 0.0
+
+[restore]
+use_neural = true
+output_format = ""    # empty = same as input, or "png", "jpg", "webp"
+output_quality = 95
+
+[web]
+host = "127.0.0.1"
+port = 8787
+
+[watch]
+interval = 2.0
+auto_restore = false
+
+[output]
+dir = ""
+verbose = false
