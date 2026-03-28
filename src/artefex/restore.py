@@ -1,17 +1,25 @@
 """Restoration pipeline - applies targeted fixes for each detected degradation."""
 
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from PIL import Image, ImageFilter
 
-from artefex.models import AnalysisResult
+from artefex.models import AnalysisResult, Degradation
 
 
 class RestorationPipeline:
-    """Applies a chain of restorations based on detected degradations."""
+    """Applies a chain of restorations based on detected degradations.
 
-    def __init__(self):
+    When neural models are available, they are used for higher quality restoration.
+    Falls back to classical signal processing methods otherwise.
+    """
+
+    def __init__(self, use_neural: bool = True):
+        self._use_neural = use_neural
+        self._neural_engine = None
+
         self._restorers = {
             "JPEG Compression": self._fix_jpeg_artifacts,
             "Multiple Re-compressions": self._fix_jpeg_artifacts,
@@ -21,20 +29,91 @@ class RestorationPipeline:
             "Resolution Loss / Upscaling": self._fix_resolution,
         }
 
-    def restore(self, file_path: Path, analysis: AnalysisResult, output_path: Path) -> None:
+        # Map degradation categories to neural model keys
+        self._neural_models = {
+            "compression": "deblock-v1",
+            "noise": "denoise-v1",
+            "resolution": "sharpen-v1",
+            "color": "color-correct-v1",
+        }
+
+    @property
+    def neural_engine(self):
+        if self._neural_engine is None and self._use_neural:
+            try:
+                from artefex.neural import NeuralEngine
+                engine = NeuralEngine()
+                if engine.available:
+                    self._neural_engine = engine
+            except Exception:
+                pass
+        return self._neural_engine
+
+    def restore(
+        self,
+        file_path: Path,
+        analysis: AnalysisResult,
+        output_path: Path,
+        format: Optional[str] = None,
+    ) -> dict:
+        """Restore an image and return a summary of what was done.
+
+        Args:
+            file_path: Path to the degraded image.
+            analysis: Analysis results from DegradationAnalyzer.
+            output_path: Where to save the restored image.
+            format: Optional output format override (e.g. "PNG", "JPEG").
+
+        Returns:
+            Dict with keys: steps (list of step descriptions), used_neural (bool).
+        """
         img = Image.open(file_path).convert("RGB")
 
-        # Apply fixes in reverse severity order (least severe first, so heavy fixes go last)
+        # Apply fixes in reverse severity order (least severe first, heavy fixes last)
         ordered = sorted(analysis.degradations, key=lambda d: d.severity)
 
+        steps = []
+        used_neural = False
+
         for degradation in ordered:
+            # Try neural model first
+            if self._try_neural(degradation):
+                model_key = self._neural_models.get(degradation.category)
+                img = self.neural_engine.run(model_key, img)
+                steps.append(f"[neural] {degradation.name} -> {model_key}")
+                used_neural = True
+                continue
+
+            # Fall back to classical methods
             restorer = self._restorers.get(degradation.name)
             if restorer:
                 img = restorer(img, degradation)
+                steps.append(f"[classical] {degradation.name}")
 
-        img.save(output_path, quality=95)
+        # Determine output format
+        save_kwargs = {"quality": 95}
+        if format:
+            fmt = format.upper()
+            if fmt == "PNG":
+                save_kwargs = {}
+            output_path = output_path.with_suffix(f".{fmt.lower()}")
+        elif output_path.suffix.lower() == ".png":
+            save_kwargs = {}
 
-    def _fix_jpeg_artifacts(self, img: Image.Image, degradation) -> Image.Image:
+        img.save(output_path, **save_kwargs)
+
+        return {"steps": steps, "used_neural": used_neural, "output_path": str(output_path)}
+
+    def _try_neural(self, degradation: Degradation) -> bool:
+        """Check if we can use a neural model for this degradation."""
+        if not self._use_neural or self.neural_engine is None:
+            return False
+        model_key = self._neural_models.get(degradation.category)
+        if model_key is None:
+            return False
+        return self.neural_engine.has_model_for(degradation.category)
+
+    def _fix_jpeg_artifacts(self, img: Image.Image, degradation: Degradation) -> Image.Image:
         """Reduce JPEG block artifacts with adaptive smoothing at block boundaries."""
         arr = np.array(img, dtype=np.float64)
         h, w, c = arr.shape
@@ -58,13 +137,9 @@ class RestorationPipeline:
         result = np.clip(result, 0, 255).astype(np.uint8)
         return Image.fromarray(result)
 
-    def _fix_noise(self, img: Image.Image, degradation) -> Image.Image:
+    def _fix_noise(self, img: Image.Image, degradation: Degradation) -> Image.Image:
         """Adaptive edge-preserving denoising."""
         arr = np.array(img, dtype=np.float64)
-
-        # Use bilateral-like filtering: smooth flat areas, preserve edges
-        # Simple approximation: blend between original and median-filtered
-        from PIL import ImageFilter
 
         radius = max(1, int(degradation.severity * 3))
         smoothed = img.filter(ImageFilter.MedianFilter(size=radius * 2 + 1))
@@ -85,7 +160,7 @@ class RestorationPipeline:
 
         return Image.fromarray(result)
 
-    def _fix_color_shift(self, img: Image.Image, degradation) -> Image.Image:
+    def _fix_color_shift(self, img: Image.Image, degradation: Degradation) -> Image.Image:
         """Normalize color channels toward balance."""
         arr = np.array(img, dtype=np.float64)
 
@@ -102,14 +177,13 @@ class RestorationPipeline:
         arr = np.clip(arr, 0, 255).astype(np.uint8)
         return Image.fromarray(arr)
 
-    def _fix_screenshot_borders(self, img: Image.Image, degradation) -> Image.Image:
+    def _fix_screenshot_borders(self, img: Image.Image, degradation: Degradation) -> Image.Image:
         """Crop solid-color borders from screenshots."""
         arr = np.array(img)
         h, w = arr.shape[:2]
 
         top, bottom, left, right = 0, h, 0, w
 
-        # Find where content starts/ends
         for y in range(min(h // 4, 50)):
             if arr[y, :, :3].astype(np.float64).std() > 5:
                 top = y
@@ -135,9 +209,10 @@ class RestorationPipeline:
 
         return img
 
-    def _fix_resolution(self, img: Image.Image, degradation) -> Image.Image:
+    def _fix_resolution(self, img: Image.Image, degradation: Degradation) -> Image.Image:
         """Sharpen to partially recover lost high-frequency detail."""
-        # For v0.1, apply unsharp mask. Neural super-res comes in v0.2.
         strength = 0.5 + degradation.severity * 1.5
         radius = 2
-        return img.filter(ImageFilter.UnsharpMask(radius=radius, percent=int(strength * 100), threshold=2))
+        return img.filter(
+            ImageFilter.UnsharpMask(radius=radius, percent=int(strength * 100), threshold=2)
+        )

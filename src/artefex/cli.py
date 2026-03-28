@@ -1,5 +1,6 @@
 """CLI entry point for artefex."""
 
+import json as json_mod
 from pathlib import Path
 from typing import Optional
 
@@ -64,9 +65,32 @@ def _print_analysis_table(results, verbose: bool = False):
 
 
 @app.command()
+def _result_to_dict(result) -> dict:
+    """Convert an AnalysisResult to a JSON-serializable dict."""
+    return {
+        "file": result.file_path,
+        "format": result.file_format,
+        "dimensions": list(result.dimensions),
+        "overall_severity": round(result.overall_severity, 3),
+        "degradations": [
+            {
+                "name": d.name,
+                "category": d.category,
+                "confidence": round(d.confidence, 3),
+                "severity": round(d.severity, 3),
+                "detail": d.detail,
+            }
+            for d in result.degradations
+        ],
+        "metadata": {k: str(v) for k, v in result.metadata.items()},
+    }
+
+
+@app.command()
 def analyze(
     path: Path = typer.Argument(..., help="Image file or directory to analyze"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed detection info"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output results as JSON"),
 ):
     """Diagnose the degradation chain of an image or batch of images."""
     if not path.exists():
@@ -79,6 +103,14 @@ def analyze(
         raise typer.Exit(1)
 
     analyzer = DegradationAnalyzer()
+
+    if json:
+        results_list = []
+        for file in files:
+            result = analyzer.analyze(file)
+            results_list.append(_result_to_dict(result))
+        print(json_mod.dumps(results_list if len(files) > 1 else results_list[0], indent=2))
+        return
 
     if len(files) == 1:
         console.print(f"\n[bold]Analyzing:[/bold] {files[0].name}\n")
@@ -184,6 +216,8 @@ def report(
 def restore(
     path: Path = typer.Argument(..., help="Image file or directory to restore"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file or directory"),
+    format: Optional[str] = typer.Option(None, "--format", "-f", help="Output format (png, jpg, webp)"),
+    no_neural: bool = typer.Option(False, "--no-neural", help="Disable neural models, use classical only"),
 ):
     """Reverse the degradation chain and restore one or more images."""
     if not path.exists():
@@ -198,7 +232,12 @@ def restore(
     from artefex.restore import RestorationPipeline
 
     analyzer = DegradationAnalyzer()
-    pipeline = RestorationPipeline()
+    pipeline = RestorationPipeline(use_neural=not no_neural)
+
+    if pipeline.neural_engine:
+        console.print("[dim]Neural models: enabled[/dim]")
+    else:
+        console.print("[dim]Neural models: not available (using classical methods)[/dim]")
 
     if len(files) == 1:
         file = files[0]
@@ -211,8 +250,12 @@ def restore(
 
         console.print(f"[dim]Found {len(results.degradations)} degradation(s). Reversing chain...[/dim]\n")
         out_path = output or file.with_stem(f"{file.stem}_restored")
-        pipeline.restore(file, results, out_path)
-        console.print(f"[green]Restored image saved to:[/green] {out_path}\n")
+        info = pipeline.restore(file, results, out_path, format=format)
+
+        for step in info["steps"]:
+            console.print(f"  [dim]*[/dim] {step}")
+
+        console.print(f"\n[green]Restored image saved to:[/green] {info['output_path']}\n")
         return
 
     # Batch mode
@@ -237,7 +280,7 @@ def restore(
 
             if results.degradations:
                 out_path = out_dir / f"{file.stem}_restored{file.suffix}"
-                pipeline.restore(file, results, out_path)
+                pipeline.restore(file, results, out_path, format=format)
                 restored_count += 1
 
             progress.advance(task)
@@ -309,6 +352,68 @@ def compare(
     diff_img.save(diff_path)
 
     console.print(f"\n[green]Difference heatmap saved to:[/green] {diff_path}\n")
+
+
+@app.command()
+def models(
+    action: str = typer.Argument(
+        "list", help="Action: list, import"
+    ),
+    key: Optional[str] = typer.Argument(None, help="Model key (for import)"),
+    path: Optional[Path] = typer.Argument(None, help="Path to model file (for import)"),
+):
+    """Manage neural models for restoration."""
+    from artefex.models_registry import ModelRegistry
+
+    registry = ModelRegistry()
+
+    if action == "list":
+        all_models = registry.list_models()
+
+        table = Table(title="Artefex Neural Models")
+        table.add_column("Key", style="bold")
+        table.add_column("Name")
+        table.add_column("Category")
+        table.add_column("Version")
+        table.add_column("Status", justify="center")
+
+        for m in all_models:
+            status = "[green]installed[/green]" if m.is_available else "[dim]not installed[/dim]"
+            table.add_row(m.key, m.name, m.category, m.version, status)
+
+        console.print(table)
+
+        installed = sum(1 for m in all_models if m.is_available)
+        console.print(f"\n{installed}/{len(all_models)} models installed")
+
+        if installed == 0:
+            console.print(
+                "\n[dim]To use neural models, install onnxruntime and import model files:[/dim]"
+                "\n[dim]  pip install onnxruntime[/dim]"
+                "\n[dim]  artefex models import deblock-v1 path/to/model.onnx[/dim]"
+            )
+
+        console.print()
+
+    elif action == "import":
+        if not key or not path:
+            console.print("[red]Error:[/red] Usage: artefex models import <key> <path>")
+            raise typer.Exit(1)
+
+        if not path.exists():
+            console.print(f"[red]Error:[/red] File not found: {path}")
+            raise typer.Exit(1)
+
+        try:
+            model = registry.import_model(path, key)
+            console.print(f"[green]Imported:[/green] {model.name} -> {model.local_path}")
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
+    else:
+        console.print(f"[red]Error:[/red] Unknown action: {action}. Use 'list' or 'import'.")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
