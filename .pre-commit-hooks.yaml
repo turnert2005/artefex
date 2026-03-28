@@ -1,0 +1,7 @@
+- id: artefex-quality-gate
+  name: Artefex Image Quality Gate
+  description: Reject images that don't meet quality standards
+  entry: artefex gate
+  language: python
+  types_or: [image]
+  additional_dependencies: ['artefex']

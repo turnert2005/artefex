@@ -1109,6 +1109,176 @@ def web(
 
 
 @app.command()
+def gate(
+    paths: list[Path] = typer.Argument(..., help="Image files or directories to check"),
+    min_grade: str = typer.Option("D", "--min-grade", "-g", help="Minimum grade (A-F)"),
+    min_score: float = typer.Option(0.0, "--min-score", "-s", help="Minimum score (0-100)"),
+    max_severity: float = typer.Option(1.0, "--max-severity", help="Maximum severity (0-1)"),
+    block_ai: bool = typer.Option(False, "--block-ai", help="Fail on AI-generated content"),
+    block_stego: bool = typer.Option(False, "--block-stego", help="Fail on steganography"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Quality gate - enforce image standards in CI/CD. Non-zero exit on failure."""
+    from artefex.quality_gate import run_quality_gate
+
+    all_files = []
+    for p in paths:
+        if p.is_dir():
+            all_files.extend(_collect_images(p))
+        elif p.is_file():
+            all_files.append(p)
+
+    if not all_files:
+        console.print("[red]Error:[/red] No image files found")
+        raise typer.Exit(1)
+
+    failures = run_quality_gate(
+        all_files,
+        min_grade=min_grade,
+        min_score=min_score,
+        max_severity=max_severity,
+        block_ai=block_ai,
+        block_stego=block_stego,
+    )
+
+    if json:
+        print(json_mod.dumps({"passed": len(all_files) - len(failures), "failed": len(failures), "failures": failures}, indent=2))
+        if failures:
+            raise typer.Exit(1)
+        return
+
+    if not failures:
+        console.print(f"[green]PASS[/green] All {len(all_files)} image(s) meet quality standards\n")
+        return
+
+    console.print(f"\n[red]FAIL[/red] {len(failures)}/{len(all_files)} image(s) failed quality gate\n")
+
+    for f in failures:
+        console.print(f"  [red]x[/red] {Path(f['file']).name} ({f['grade']}, {f['score']}/100)")
+        for reason in f["reasons"]:
+            console.print(f"    [dim]{reason}[/dim]")
+
+    console.print()
+    raise typer.Exit(1)
+
+
+@app.command()
+def health(
+    path: str = typer.Argument(..., help="Image file, directory, or URL"),
+):
+    """Quick one-line health check for an image or directory."""
+    from artefex.grade import compute_grade
+
+    tmp_downloaded = None
+    if path.startswith("http://") or path.startswith("https://"):
+        tmp_downloaded = _download_url(path)
+        if tmp_downloaded is None:
+            raise typer.Exit(1)
+        files = [tmp_downloaded]
+    else:
+        p = Path(path)
+        if not p.exists():
+            console.print(f"[red]Error:[/red] {path} not found")
+            raise typer.Exit(1)
+        files = _collect_images(p)
+
+    if not files:
+        console.print(f"[red]Error:[/red] No images found")
+        raise typer.Exit(1)
+
+    analyzer = DegradationAnalyzer()
+
+    for file in files:
+        result = analyzer.analyze(file)
+        g = compute_grade(result)
+        n = len(result.degradations)
+        top = result.degradations[0].name if result.degradations else "clean"
+        color = g["color"]
+        console.print(f"[{color}]{g['grade']}[/{color}] {g['score']:5.1f}  {n} issues  {top:30s}  {file.name}")
+
+    if tmp_downloaded:
+        tmp_downloaded.unlink(missing_ok=True)
+
+
+@app.command(name="gif-analyze")
+def gif_analyze(
+    path: Path = typer.Argument(..., help="Animated GIF or APNG file"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Analyze an animated GIF/APNG frame by frame."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.gif_analyze import GifAnalyzer
+
+    ga = GifAnalyzer()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Analyzing frames...", total=100)
+
+        def on_progress(current, total):
+            progress.update(task, completed=current, total=total)
+
+        result = ga.analyze(path, on_progress=on_progress)
+
+    if json:
+        data = {
+            "file": result.file_path,
+            "frame_count": result.frame_count,
+            "is_animated": result.is_animated,
+            "dimensions": list(result.dimensions),
+            "duration_ms": result.total_duration_ms,
+            "avg_frame_duration_ms": round(result.avg_frame_duration_ms, 1),
+            "palette_size": result.color_palette_size,
+            "avg_frame_similarity": round(float(sum(result.frame_similarity) / len(result.frame_similarity)), 3) if result.frame_similarity else 0,
+            "degradation_summary": {
+                name: {k: round(v, 3) if isinstance(v, float) else v for k, v in stats.items()}
+                for name, stats in result.degradation_summary.items()
+            },
+        }
+        print(json_mod.dumps(data, indent=2))
+        return
+
+    console.print(f"\n[bold]GIF Analysis:[/bold] {path.name}\n")
+
+    info = Table(title="Animation Info")
+    info.add_column("Property", style="bold")
+    info.add_column("Value")
+    info.add_row("Dimensions", f"{result.dimensions[0]}x{result.dimensions[1]}")
+    info.add_row("Frames", str(result.frame_count))
+    info.add_row("Animated", str(result.is_animated))
+    info.add_row("Duration", f"{result.total_duration_ms}ms")
+    info.add_row("Avg frame", f"{result.avg_frame_duration_ms:.0f}ms")
+    if result.color_palette_size:
+        info.add_row("Palette", f"{result.color_palette_size} colors")
+    if result.frame_similarity:
+        avg_sim = sum(result.frame_similarity) / len(result.frame_similarity)
+        info.add_row("Avg frame similarity", f"{avg_sim:.1%}")
+    console.print(info)
+
+    if result.degradation_summary:
+        deg = Table(title="Degradation Summary")
+        deg.add_column("Issue", style="bold")
+        deg.add_column("Frequency", justify="right")
+        deg.add_column("Avg Severity", justify="right")
+
+        for name, stats in sorted(result.degradation_summary.items(), key=lambda x: x[1]["avg_severity"], reverse=True):
+            color = "red" if stats["avg_severity"] > 0.7 else "yellow" if stats["avg_severity"] > 0.4 else "green"
+            deg.add_row(name, f"{stats['frequency']:.0%}", f"[{color}]{stats['avg_severity']:.0%}[/{color}]")
+
+        console.print(deg)
+
+    console.print()
+
+
+@app.command()
 def fix(
     path: str = typer.Argument(..., help="Image file or URL to auto-fix"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path"),

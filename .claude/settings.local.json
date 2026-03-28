@@ -43,7 +43,11 @@
       "Bash(python -m artefex version)",
       "Bash(python -m artefex fix _api.jpg)",
       "Bash(rm -f _api.jpg _api_fixed.jpg)",
-      "Bash(gh release:*)"
+      "Bash(gh release:*)",
+      "Bash(python -m artefex health .)",
+      "Bash(python -m artefex gate _t2.jpg --min-grade F)",
+      "Bash(python -m artefex gate _t1.jpg --min-grade B)",
+      "Bash(rm -f _t1.jpg _t2.jpg)"
     ]
   }
 }
