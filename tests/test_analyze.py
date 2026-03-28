@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from neural_enhance.analyze import DegradationAnalyzer
+from artefex.analyze import DegradationAnalyzer
 
 
 def _make_test_image(w=256, h=256, mode="RGB") -> Image.Image:

@@ -1,4 +1,4 @@
-"""CLI entry point for neural-enhance."""
+"""CLI entry point for artefex."""
 
 from pathlib import Path
 
@@ -6,12 +6,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from neural_enhance.analyze import DegradationAnalyzer
-from neural_enhance.report import render_report
+from artefex.analyze import DegradationAnalyzer
+from artefex.report import render_report
 
 app = typer.Typer(
-    name="neural-enhance",
-    help="Neural forensic restoration — diagnose and reverse media degradation chains.",
+    name="artefex",
+    help="Neural forensic restoration - diagnose and reverse media degradation chains.",
     no_args_is_help=True,
 )
 console = Console()
@@ -103,7 +103,7 @@ def restore(
 
     console.print(f"[dim]Found {len(results.degradations)} degradation(s). Reversing chain...[/dim]\n")
 
-    from neural_enhance.restore import RestorationPipeline
+    from artefex.restore import RestorationPipeline
 
     pipeline = RestorationPipeline()
     out_path = output or file.with_stem(f"{file.stem}_restored")

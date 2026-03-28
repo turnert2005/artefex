@@ -1,11 +1,11 @@
-"""Restoration pipeline — applies targeted fixes for each detected degradation."""
+"""Restoration pipeline - applies targeted fixes for each detected degradation."""
 
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
 
-from neural_enhance.models import AnalysisResult
+from artefex.models import AnalysisResult
 
 
 class RestorationPipeline:

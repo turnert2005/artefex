@@ -2,13 +2,13 @@
 
 from pathlib import Path
 
-from neural_enhance.models import AnalysisResult
+from artefex.models import AnalysisResult
 
 
 def render_report(file_path: Path, result: AnalysisResult) -> str:
     lines = []
     lines.append("=" * 60)
-    lines.append("  NEURAL-ENHANCE FORENSIC REPORT")
+    lines.append("  ARTEFEX FORENSIC REPORT")
     lines.append("=" * 60)
     lines.append("")
     lines.append(f"  File:       {file_path.name}")

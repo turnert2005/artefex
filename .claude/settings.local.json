@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh search:*)",
+      "WebSearch",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -c \":*)",
+      "Bash(python -m neural_enhance.cli analyze test_sample.jpg --verbose)",
+      "Bash(python -m neural_enhance.cli report test_sample.jpg)",
+      "Bash(python -m neural_enhance.cli restore test_sample.jpg --output test_restored.jpg)",
+      "Bash(gh repo:*)",
+      "Bash(where gh.exe)",
+      "Read(//c/Program Files/GitHub CLI/**)",
+      "Read(//c/Users/scott/Documents/GitHub/neural-enhance/$LOCALAPPDATA/GitHub CLI/**)",
+      "Bash(cmd.exe /c \"where gh\")",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI\")",
+      "Bash(gh auth:*)"
+    ]
+  }
+}

@@ -1,11 +1,11 @@
-"""Degradation detection engine — the core of neural-enhance."""
+"""Degradation detection engine - the core of neural-enhance."""
 
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from neural_enhance.models import AnalysisResult, Degradation
+from artefex.models import AnalysisResult, Degradation
 
 
 class DegradationAnalyzer:
@@ -156,7 +156,7 @@ class DegradationAnalyzer:
 
         max_corr_offset, max_corr = max(correlations, key=lambda x: x[1])
 
-        # Also check high-frequency content — upscaled images lack it
+        # Also check high-frequency content - upscaled images lack it
         from numpy.fft import fft2, fftshift
 
         spectrum = np.abs(fftshift(fft2(gray)))
@@ -229,7 +229,7 @@ class DegradationAnalyzer:
             name="Color Shift",
             confidence=confidence,
             severity=severity,
-            detail=f"Channel means — R:{r_mean:.1f} G:{g_mean:.1f} B:{b_mean:.1f}. "
+            detail=f"Channel means - R:{r_mean:.1f} G:{g_mean:.1f} B:{b_mean:.1f}. "
             f"Max deviation: {max_dev:.3f}, dominant: {dominant}. "
             f"Clip imbalance: {clip_imbalance:.3f}",
             category="color",
