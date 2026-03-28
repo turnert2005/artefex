@@ -1049,5 +1049,202 @@ def web(
     uvicorn.run("artefex.web:app", host=host, port=port, log_level="info")
 
 
+@app.command()
+def audit(
+    path: Path = typer.Argument(..., help="Image file for comprehensive audit"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output directory for audit files"),
+):
+    """Run a comprehensive audit combining all analysis tools on a single image."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.grade import compute_grade
+    from artefex.fingerprint import PlatformFingerprinter
+    from artefex.heatmap import generate_heatmap
+    from artefex.report_html import render_html_report
+
+    out_dir = output or path.parent / f"{path.stem}_audit"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"\n[bold]Comprehensive Audit:[/bold] {path.name}\n")
+
+    # 1. Full analysis
+    console.print("  [dim]*[/dim] Running degradation analysis...")
+    analyzer = DegradationAnalyzer()
+    result = analyzer.analyze(path)
+
+    # 2. Grade
+    console.print("  [dim]*[/dim] Computing quality grade...")
+    grade_info = compute_grade(result)
+
+    # 3. Platform fingerprint
+    console.print("  [dim]*[/dim] Running platform fingerprinting...")
+    fp = PlatformFingerprinter()
+    platforms = fp.fingerprint(path)
+
+    # 4. Heatmap
+    console.print("  [dim]*[/dim] Generating degradation heatmap...")
+    heatmap_path = out_dir / f"{path.stem}_heatmap.png"
+    heatmap_stats = generate_heatmap(path, heatmap_path)
+
+    # 5. HTML report
+    console.print("  [dim]*[/dim] Generating HTML report...")
+    html_path = out_dir / f"{path.stem}_report.html"
+    html = render_html_report(path, result)
+    html_path.write_text(html, encoding="utf-8")
+
+    # 6. Restore
+    console.print("  [dim]*[/dim] Running restoration...")
+    from artefex.restore import RestorationPipeline
+    pipeline = RestorationPipeline(use_neural=False)
+    restored_path = out_dir / f"{path.stem}_restored.png"
+    if result.degradations:
+        pipeline.restore(path, result, restored_path)
+
+    # Print summary
+    console.print()
+    console.print(f"  [{grade_info['color']}]Grade: {grade_info['grade']}[/{grade_info['color']}]  Score: {grade_info['score']}/100")
+    console.print(f"  [dim]{grade_info['description']}[/dim]")
+    console.print()
+
+    if result.degradations:
+        table = Table(title="Degradation Chain")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Issue", style="bold")
+        table.add_column("Severity", justify="right")
+
+        for i, d in enumerate(result.degradations, 1):
+            color = "red" if d.severity > 0.7 else "yellow" if d.severity > 0.4 else "green"
+            table.add_row(str(i), d.name, f"[{color}]{d.severity:.0%}[/{color}]")
+
+        console.print(table)
+
+    if platforms:
+        console.print(f"\n  [bold]Platform attribution:[/bold]")
+        for p in platforms[:3]:
+            console.print(f"    {p['name']}: {p['confidence']:.0%} confidence")
+
+    console.print(f"\n  [bold]Spatial analysis:[/bold]")
+    console.print(f"    Healthy: {heatmap_stats['healthy_pct']:.0%}  Moderate: {heatmap_stats['moderate_pct']:.0%}  Severe: {heatmap_stats['severe_pct']:.0%}")
+
+    console.print(f"\n  [bold]Output files:[/bold]")
+    console.print(f"    Heatmap:  {heatmap_path}")
+    console.print(f"    Report:   {html_path}")
+    if result.degradations:
+        console.print(f"    Restored: {restored_path}")
+    console.print()
+
+
+@app.command()
+def duplicates(
+    path: Path = typer.Argument(..., help="Directory to scan for duplicates"),
+    threshold: float = typer.Option(0.9, "--threshold", "-t", help="Similarity threshold (0-1)"),
+    method: str = typer.Option("phash", "--method", "-m", help="Hash method: phash, ahash, dhash"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Find duplicate or near-duplicate images in a directory."""
+    if not path.exists() or not path.is_dir():
+        console.print(f"[red]Error:[/red] Directory not found: {path}")
+        raise typer.Exit(1)
+
+    files = _collect_images(path)
+    if not files:
+        console.print(f"[red]Error:[/red] No images found in: {path}")
+        raise typer.Exit(1)
+
+    from artefex.similarity import find_duplicates
+
+    console.print(f"\n[bold]Scanning {len(files)} images for duplicates...[/bold]\n")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Hashing...", total=len(files))
+
+        def on_progress(current, total):
+            progress.update(task, completed=current, total=total)
+
+        groups = find_duplicates(files, threshold=threshold, hash_fn=method, on_progress=on_progress)
+
+    if json:
+        print(json_mod.dumps(groups, indent=2))
+        return
+
+    if not groups:
+        console.print("[green]No duplicates found.[/green]\n")
+        return
+
+    table = Table(title=f"Duplicate Groups (threshold: {threshold:.0%})")
+    table.add_column("Group", style="dim", width=5)
+    table.add_column("Files", style="bold")
+    table.add_column("Similarity", justify="right")
+
+    for i, group in enumerate(groups, 1):
+        files_str = "\n".join(Path(f).name for f in group["files"])
+        table.add_row(str(i), files_str, f"{group['similarity']:.0%}")
+
+    console.print(table)
+    console.print(f"\n[yellow]{len(groups)} group(s)[/yellow] of duplicates found across {sum(len(g['files']) for g in groups)} files\n")
+
+
+@app.command()
+def version():
+    """Show Artefex version and system info."""
+    from artefex import __version__
+
+    banner = """
+ [bold magenta]    _         _        __
+   / \\   _ __| |_ ___ / _| _____  __
+  / _ \\ | '__| __/ _ \\ |_ / _ \\ \\/ /
+ / ___ \\| |  | ||  __/  _|  __/>  <
+/_/   \\_\\_|   \\__\\___|_|  \\___/_/\\_\\[/bold magenta]
+"""
+    console.print(banner)
+    console.print(f"  [bold]Artefex[/bold] v{__version__}")
+    console.print(f"  Neural forensic restoration\n")
+
+    # Check optional deps
+    deps = []
+    try:
+        import onnxruntime
+        deps.append(f"  [green]+[/green] onnxruntime {onnxruntime.__version__}")
+    except ImportError:
+        deps.append("  [dim]-[/dim] onnxruntime (not installed)")
+
+    try:
+        import fastapi
+        deps.append(f"  [green]+[/green] fastapi {fastapi.__version__}")
+    except ImportError:
+        deps.append("  [dim]-[/dim] fastapi (not installed)")
+
+    try:
+        import cv2
+        deps.append(f"  [green]+[/green] opencv {cv2.__version__}")
+    except ImportError:
+        deps.append("  [dim]-[/dim] opencv (not installed)")
+
+    console.print("  [bold]Dependencies:[/bold]")
+    for d in deps:
+        console.print(d)
+
+    # Check models
+    from artefex.models_registry import ModelRegistry
+    registry = ModelRegistry()
+    models = registry.list_models()
+    installed = sum(1 for m in models if m.is_available)
+    console.print(f"\n  [bold]Models:[/bold] {installed}/{len(models)} installed")
+
+    # Check plugins
+    from artefex.plugins import get_plugin_registry
+    plugins = get_plugin_registry().list_plugins()
+    total_plugins = len(plugins["detectors"]) + len(plugins["restorers"])
+    console.print(f"  [bold]Plugins:[/bold] {total_plugins} loaded\n")
+
+
 if __name__ == "__main__":
     app()

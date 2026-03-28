@@ -78,5 +78,6 @@ def _recommend_action(degradation_name: str) -> str:
         "EXIF Metadata Stripped": "Flag as re-processed (metadata cannot be recovered)",
         "Platform Processing": "Image was processed by a social media platform (informational)",
         "AI-Generated Content": "Image shows signs of AI generation (informational)",
+        "Steganography Detected": "Image may contain hidden embedded data (informational)",
     }
     return actions.get(degradation_name, f"Address {degradation_name}")

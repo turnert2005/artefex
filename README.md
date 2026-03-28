@@ -16,93 +16,141 @@ pip install -e ".[neural]"    # adds ONNX neural models
 pip install -e ".[all]"       # everything
 ```
 
-## Usage
+Or with Docker:
 
-### Analyze images
 ```bash
-artefex analyze photo.jpg                  # single image
-artefex analyze photo.jpg --verbose        # with details
-artefex analyze photo.jpg --json           # machine-readable output
-artefex analyze ./photos/                  # batch mode
+docker compose up             # web UI at http://localhost:8787
 ```
 
-### Generate forensic reports
+## Commands
+
+### Analysis
+
 ```bash
-artefex report photo.jpg
-artefex report photo.jpg --output report.txt
-artefex report ./photos/                   # batch mode
+artefex analyze photo.jpg                     # diagnose degradation chain
+artefex analyze photo.jpg --json              # machine-readable output
+artefex analyze photo.jpg --verbose           # detailed detection info
+artefex analyze https://example.com/img.jpg   # analyze from URL
+artefex analyze ./photos/                     # batch mode
 ```
 
-### Restore images
+### Quality grading
+
 ```bash
-artefex restore photo.jpg
-artefex restore photo.jpg --output clean.png
-artefex restore photo.jpg --format png     # convert format
-artefex restore photo.jpg --no-neural      # classical methods only
-artefex restore ./photos/                  # batch mode
+artefex grade photo.jpg                       # A-F grade with score
+artefex grade ./photos/ --export csv          # batch export as CSV
+artefex grade ./photos/ --export markdown     # batch export as markdown
 ```
 
-### Compare before and after
+### Forensic tools
+
 ```bash
-artefex compare original.jpg restored.jpg
+artefex report photo.jpg                      # text forensic report
+artefex report photo.jpg --html               # rich HTML report with charts
+artefex timeline photo.jpg                    # ASCII degradation timeline
+artefex heatmap photo.jpg                     # spatial degradation heatmap
+artefex audit photo.jpg                       # comprehensive audit (all tools)
 ```
 
-Outputs MSE, PSNR, per-channel diffs, and generates a difference heatmap.
+### Restoration
 
-### Video analysis and restoration
 ```bash
-artefex video-analyze clip.mp4             # sample frames and diagnose
-artefex video-analyze clip.mp4 --samples 20
-artefex video-restore clip.mp4             # restore frame by frame
-artefex video-restore clip.mp4 --output clean.mp4
+artefex restore photo.jpg                     # reverse the degradation chain
+artefex restore photo.jpg --format png        # convert output format
+artefex restore photo.jpg --no-neural         # classical methods only
+artefex restore ./photos/                     # batch restore
+artefex restore-preview photo.jpg             # save each step as separate file
 ```
 
-### Web UI
+### Comparison
+
 ```bash
-artefex web                                # launch at http://127.0.0.1:8787
-artefex web --port 9000                    # custom port
+artefex compare original.jpg restored.jpg     # MSE, PSNR, SSIM, heatmap
+artefex duplicates ./photos/                  # find duplicate images
+artefex duplicates ./photos/ --threshold 0.8  # adjust similarity threshold
 ```
 
-Drag-and-drop interface for analyzing and restoring images in your browser.
+### Video
 
-### Model management
 ```bash
-artefex models list                        # show available models
-artefex models import deblock-v1 model.onnx
+artefex video-analyze clip.mp4                # sample frames for degradation
+artefex video-restore clip.mp4                # restore frame by frame
+```
+
+### Web and automation
+
+```bash
+artefex web                                   # launch web UI with drag-and-drop
+artefex watch ./inbox/ --restore              # auto-process new images
+artefex dashboard ./photos/                   # generate HTML overview dashboard
+```
+
+### System
+
+```bash
+artefex version                               # show version and dependency status
+artefex models list                           # show available neural models
+artefex models import deblock-v1 model.onnx   # import a model
+artefex plugins                               # list installed plugins
 ```
 
 ## What it detects
 
-| Degradation | Method |
-|---|---|
-| JPEG compression artifacts | 8x8 block boundary discontinuity analysis |
-| Multiple re-compressions | Double quantization pattern + ringing detection |
-| Resolution loss / upscaling | High-frequency spectral analysis + autocorrelation |
-| Color shift | Channel imbalance + clip ratio analysis |
-| Screenshot artifacts | Border uniformity + aspect ratio + dimension analysis |
-| Noise | Laplacian MAD estimation |
-| Watermark overlays | Tile correlation + histogram peaks + alpha channel analysis |
-| EXIF metadata stripping | Metadata presence/completeness checks |
+| Category | Detector | Method |
+|---|---|---|
+| Compression | JPEG artifacts | 8x8 block boundary discontinuity analysis |
+| Compression | Multiple re-compressions | Double quantization + ringing detection |
+| Resolution | Upscaling/loss | High-frequency spectral analysis + autocorrelation |
+| Color | Color shift | Channel imbalance + clip ratio analysis |
+| Artifacts | Screenshot remnants | Border uniformity + aspect ratio + dimensions |
+| Noise | Sensor/added noise | Laplacian MAD estimation |
+| Overlay | Watermarks | Tile correlation + histogram peaks + alpha channel |
+| Metadata | EXIF stripping | Metadata presence/completeness checks |
+| Provenance | Platform fingerprint | Dimension/compression/EXIF signatures for Twitter, Instagram, WhatsApp, Facebook, Telegram, Discord, Imgur |
+| Provenance | AI-generated content | Frequency spectrum, histogram smoothness, noise uniformity, patch consistency |
+| Security | Steganography | LSB analysis, chi-square test, entropy, pairs analysis |
+
+## Configuration
+
+Create `.artefex.toml` in your project or `~/.artefex.toml` globally:
+
+```toml
+[analysis]
+min_confidence = 0.15
+
+[restore]
+use_neural = true
+output_format = "png"
+
+[web]
+port = 8787
+```
+
+Also supports `[tool.artefex]` in `pyproject.toml`.
 
 ## Training custom models
 
-Artefex includes training scripts for building your own restoration models:
-
 ```bash
 cd train/
-
-# Generate synthetic training data
-python generate_data.py --source /path/to/clean/images --output ./data --type deblock
-
-# Train a deblocking model
-python deblock_train.py --data ./data --epochs 50 --output ./models
-
-# Train a denoising model
-python denoise_train.py --data ./data --epochs 50 --output ./models
-
-# Import into artefex
+python generate_data.py --source /path/to/clean --output ./data --type deblock
+python deblock_train.py --data ./data --epochs 50
 artefex models import deblock-v1 ./models/deblock_v1.onnx
 ```
+
+## Plugins
+
+Artefex supports community plugins via Python entry points:
+
+```toml
+# In your plugin's pyproject.toml
+[project.entry-points."artefex.detectors"]
+my_detector = "my_package:MyDetector"
+
+[project.entry-points."artefex.restorers"]
+my_restorer = "my_package:MyRestorer"
+```
+
+See `examples/custom_plugin.py` for a complete example.
 
 ## Architecture
 
@@ -110,35 +158,33 @@ artefex models import deblock-v1 ./models/deblock_v1.onnx
 artefex analyze <image>
     |
     v
-+-------------------+
-| Degradation       |  8 detectors run in parallel
-| Analyzer          |  Each returns (name, confidence, severity, detail)
-+-------------------+
++------------------------+
+| 11 Built-in Detectors  |  JPEG, noise, color, resolution, screenshot,
+| + Plugin Detectors     |  watermark, EXIF, platform, AI-gen, stego
++------------------------+
     |
     v
-+-------------------+
-| Degradation       |  Sorted by severity, ordered as estimated chain
-| Chain             |
-+-------------------+
++------------------------+
+| Degradation Chain      |  Sorted by severity, graded A-F
++------------------------+
     |
     v
-+-------------------+
-| Restoration       |  Neural models (ONNX) when available
-| Pipeline          |  Classical fallback (signal processing)
-+-------------------+
++------------------------+
+| Restoration Pipeline   |  Neural (ONNX) -> Plugin -> Classical
++------------------------+
     |
     v
-  restored image
+  restored image + report + heatmap + grade
 ```
 
 ## Roadmap
 
 - [x] **v0.1** - Detection engine + classical restoration
-- [x] **v0.2** - Neural model infrastructure + web UI + video support
-- [ ] **v0.3** - Pre-trained model weights + model hub
-- [ ] **v0.4** - Temporal coherence for video restoration
-- [ ] **v0.5** - Plugin system for community detectors
-- [ ] **v1.0** - Stable API + comprehensive model zoo
+- [x] **v0.2** - Neural models, web UI, video, training, plugins
+- [x] **v0.3** - Platform fingerprinting, AI detection, steganography, grading
+- [ ] **v0.4** - Pre-trained model weights + model hub
+- [ ] **v0.5** - Temporal coherence for video + audio support
+- [ ] **v1.0** - Stable API + community model zoo
 
 ## License
 

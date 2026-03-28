@@ -48,6 +48,16 @@ class DegradationAnalyzer:
         except Exception:
             pass
 
+        # Run steganography detection
+        try:
+            from artefex.detect_stego import SteganographyDetector
+            stego_det = SteganographyDetector()
+            stego_deg = stego_det.detect(img, arr)
+            if stego_deg:
+                result.degradations.append(stego_deg)
+        except Exception:
+            pass
+
         # Run platform fingerprinting
         try:
             from artefex.fingerprint import detect_platform
