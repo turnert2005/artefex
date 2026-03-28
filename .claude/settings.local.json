@@ -40,7 +40,9 @@
       "Bash(python -m artefex heatmap _h.jpg)",
       "Bash(python -m artefex restore-preview _h.jpg)",
       "Bash(rm -rf _h.jpg _h_heatmap.png _h_steps)",
-      "Bash(python -m artefex version)"
+      "Bash(python -m artefex version)",
+      "Bash(python -m artefex fix _api.jpg)",
+      "Bash(rm -f _api.jpg _api_fixed.jpg)"
     ]
   }
 }

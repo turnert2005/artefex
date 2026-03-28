@@ -1,11 +1,15 @@
 """CLI entry point for artefex."""
 
 import json as json_mod
+import logging
+import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
@@ -18,9 +22,54 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+log = logging.getLogger("artefex")
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"}
+
+
+def _setup_logging(debug: bool = False, quiet: bool = False):
+    """Configure logging level."""
+    if quiet:
+        log.setLevel(logging.WARNING)
+    elif debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(message)s",
+            handlers=[RichHandler(console=console, show_time=False)],
+        )
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
+
+
+def _read_stdin_image() -> Optional[Path]:
+    """Read image data from stdin and save to temp file."""
+    if sys.stdin.isatty():
+        return None
+
+    try:
+        data = sys.stdin.buffer.read()
+        if not data or len(data) < 100:
+            return None
+
+        # Detect format from magic bytes
+        ext = ".jpg"
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            ext = ".png"
+        elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            ext = ".webp"
+        elif data[:2] == b"BM":
+            ext = ".bmp"
+        elif data[:4] == b"GIF8":
+            ext = ".gif"
+
+        tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+        tmp.write(data)
+        tmp.close()
+        return Path(tmp.name)
+    except Exception:
+        return None
 
 
 def _compute_ssim(img1: "np.ndarray", img2: "np.ndarray") -> float:
@@ -167,15 +216,25 @@ def _result_to_dict(result) -> dict:
 
 @app.command()
 def analyze(
-    path: str = typer.Argument(..., help="Image file, directory, or URL to analyze"),
+    path: str = typer.Argument("-", help="Image file, directory, URL, or - for stdin"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed detection info"),
     json: bool = typer.Option(False, "--json", "-j", help="Output results as JSON"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress non-essential output"),
 ):
     """Diagnose the degradation chain of an image or batch of images."""
+    _setup_logging(debug=debug, quiet=quiet)
     tmp_downloaded = None
 
+    # Check for stdin
+    if path == "-":
+        tmp_downloaded = _read_stdin_image()
+        if tmp_downloaded is None:
+            console.print("[red]Error:[/red] No image data on stdin")
+            raise typer.Exit(1)
+        files = [tmp_downloaded]
     # Check if it's a URL
-    if path.startswith("http://") or path.startswith("https://"):
+    elif path.startswith("http://") or path.startswith("https://"):
         console.print(f"[dim]Downloading image from URL...[/dim]")
         tmp_downloaded = _download_url(path)
         if tmp_downloaded is None:
@@ -1047,6 +1106,69 @@ def web(
     console.print(f"\n[bold]Artefex Web UI[/bold]")
     console.print(f"Open [link=http://{host}:{port}]http://{host}:{port}[/link] in your browser\n")
     uvicorn.run("artefex.web:app", host=host, port=port, log_level="info")
+
+
+@app.command()
+def fix(
+    path: str = typer.Argument(..., help="Image file or URL to auto-fix"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path"),
+):
+    """Smart one-shot: analyze, grade, restore, and report in one command."""
+    from artefex.grade import compute_grade
+
+    # Handle URL
+    tmp_downloaded = None
+    if path.startswith("http://") or path.startswith("https://"):
+        console.print(f"[dim]Downloading...[/dim]")
+        tmp_downloaded = _download_url(path)
+        if tmp_downloaded is None:
+            raise typer.Exit(1)
+        file = tmp_downloaded
+    else:
+        file = Path(path)
+        if not file.exists():
+            console.print(f"[red]Error:[/red] File not found: {path}")
+            raise typer.Exit(1)
+
+    analyzer = DegradationAnalyzer()
+    result = analyzer.analyze(file)
+    grade_info = compute_grade(result)
+
+    console.print(f"\n  [bold]{file.name}[/bold]  [{grade_info['color']}]{grade_info['grade']}[/{grade_info['color']}] ({grade_info['score']}/100)")
+
+    if not result.degradations:
+        console.print(f"  [green]Clean image - no restoration needed.[/green]\n")
+        if tmp_downloaded:
+            tmp_downloaded.unlink(missing_ok=True)
+        return
+
+    for d in result.degradations:
+        color = "red" if d.severity > 0.7 else "yellow" if d.severity > 0.4 else "green"
+        console.print(f"  [{color}]*[/{color}] {d.name} ({d.severity:.0%})")
+
+    # Auto-restore
+    from artefex.restore import RestorationPipeline
+    pipeline = RestorationPipeline()
+
+    out_path = output or Path(file.stem + "_fixed" + file.suffix)
+    info = pipeline.restore(file, result, out_path)
+
+    console.print(f"\n  [green]Fixed -> {out_path}[/green]")
+
+    # Quick before/after
+    from PIL import Image
+    import numpy as np
+    orig = np.array(Image.open(file).convert("RGB"), dtype=np.float64)
+    fixed = np.array(Image.open(out_path).convert("RGB"), dtype=np.float64)
+    if orig.shape == fixed.shape:
+        mse = np.mean((orig - fixed) ** 2)
+        psnr = 10 * np.log10(255.0**2 / mse) if mse > 0 else float("inf")
+        console.print(f"  [dim]PSNR: {psnr:.1f} dB | {len(info['steps'])} fixes applied[/dim]\n")
+    else:
+        console.print(f"  [dim]{len(info['steps'])} fixes applied[/dim]\n")
+
+    if tmp_downloaded:
+        tmp_downloaded.unlink(missing_ok=True)
 
 
 @app.command()
