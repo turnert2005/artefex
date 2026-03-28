@@ -38,6 +38,15 @@ class DegradationAnalyzer:
             if degradation:
                 result.degradations.append(degradation)
 
+        # Run platform fingerprinting
+        try:
+            from artefex.fingerprint import detect_platform
+            platform_deg = detect_platform(file_path)
+            if platform_deg:
+                result.degradations.append(platform_deg)
+        except Exception:
+            pass
+
         # Run plugin detectors
         try:
             from artefex.plugins import get_plugin_registry

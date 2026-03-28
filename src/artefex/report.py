@@ -76,5 +76,6 @@ def _recommend_action(degradation_name: str) -> str:
         "Noise": "Apply adaptive denoising while preserving edges",
         "Watermark": "Attempt watermark removal via inpainting",
         "EXIF Metadata Stripped": "Flag as re-processed (metadata cannot be recovered)",
+        "Platform Processing": "Image was processed by a social media platform (informational)",
     }
     return actions.get(degradation_name, f"Address {degradation_name}")

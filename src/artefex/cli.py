@@ -466,6 +466,109 @@ def compare(
 
 
 @app.command()
+def grade(
+    path: str = typer.Argument(..., help="Image file, directory, or URL"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+    export: Optional[str] = typer.Option(None, "--export", "-e", help="Export format: csv, markdown"),
+):
+    """Grade image quality on an A-F scale."""
+    from artefex.grade import compute_grade
+
+    # Handle URL
+    tmp_downloaded = None
+    if path.startswith("http://") or path.startswith("https://"):
+        tmp_downloaded = _download_url(path)
+        if tmp_downloaded is None:
+            raise typer.Exit(1)
+        files = [tmp_downloaded]
+    else:
+        p = Path(path)
+        if not p.exists():
+            console.print(f"[red]Error:[/red] Path not found: {path}")
+            raise typer.Exit(1)
+        files = _collect_images(p)
+
+    if not files:
+        console.print(f"[red]Error:[/red] No image files found")
+        raise typer.Exit(1)
+
+    analyzer = DegradationAnalyzer()
+    grades = []
+
+    for file in files:
+        result = analyzer.analyze(file)
+        g = compute_grade(result)
+        g["file"] = file.name
+        grades.append(g)
+
+    if tmp_downloaded:
+        tmp_downloaded.unlink(missing_ok=True)
+
+    if json:
+        print(json_mod.dumps(grades if len(grades) > 1 else grades[0], indent=2))
+        return
+
+    if export == "csv":
+        print("file,grade,score,degradations")
+        for g in grades:
+            n_degs = len(g["breakdown"])
+            print(f"{g['file']},{g['grade']},{g['score']},{n_degs}")
+        return
+
+    if export == "markdown":
+        print("| File | Grade | Score | Description |")
+        print("|---|---|---|---|")
+        for g in grades:
+            print(f"| {g['file']} | {g['grade']} | {g['score']}/100 | {g['description']} |")
+        return
+
+    if len(grades) == 1:
+        g = grades[0]
+        console.print(f"\n[bold]{g['file']}[/bold]\n")
+        console.print(f"  [{g['color']}]Grade: {g['grade']}[/{g['color']}]  Score: {g['score']}/100")
+        console.print(f"  [dim]{g['description']}[/dim]\n")
+
+        if g["breakdown"]:
+            table = Table(title="Score Breakdown")
+            table.add_column("Issue", style="bold")
+            table.add_column("Penalty", justify="right")
+            table.add_column("Severity", justify="right")
+            table.add_column("Confidence", justify="right")
+
+            for b in g["breakdown"]:
+                table.add_row(b["name"], f"-{b['penalty']}", f"{b['severity']}%", f"{b['confidence']}%")
+
+            console.print(table)
+            console.print()
+    else:
+        table = Table(title="Quality Grades")
+        table.add_column("File", style="bold")
+        table.add_column("Grade", justify="center")
+        table.add_column("Score", justify="right")
+        table.add_column("Issues", justify="center")
+        table.add_column("Description")
+
+        for g in grades:
+            table.add_row(
+                g["file"],
+                f"[{g['color']}]{g['grade']}[/{g['color']}]",
+                f"{g['score']}",
+                str(len(g["breakdown"])),
+                g["description"][:50],
+            )
+
+        console.print(table)
+
+        # Summary stats
+        avg_score = sum(g["score"] for g in grades) / len(grades)
+        grade_counts = {}
+        for g in grades:
+            grade_counts[g["grade"]] = grade_counts.get(g["grade"], 0) + 1
+        dist = " ".join(f"{g}:{c}" for g, c in sorted(grade_counts.items()))
+        console.print(f"\n[dim]Average score: {avg_score:.1f}/100 | Distribution: {dist}[/dim]\n")
+
+
+@app.command()
 def timeline(
     path: Path = typer.Argument(..., help="Image file to visualize degradation timeline"),
 ):
