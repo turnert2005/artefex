@@ -8,8 +8,10 @@ from PIL import Image
 
 from artefex.detect_stego import SteganographyDetector
 from artefex.detect_aigen import AIGeneratedDetector
+from artefex.detect_camera import CameraIdentifier
 from artefex.similarity import phash, ahash, dhash, hamming_distance, similarity_score, find_duplicates
 from artefex.heatmap import generate_heatmap
+from artefex.accessibility import check_accessibility, simulate_cvd
 
 
 def _make_image(w=128, h=128) -> Image.Image:
@@ -140,3 +142,48 @@ def test_heatmap_generates_output():
     assert stats["patch_size"] == 32
 
     _cleanup(path, out_path)
+
+
+# Camera identification tests
+
+def test_camera_identifier_returns_list():
+    img = _make_image(256, 256)
+    arr = np.array(img)
+    ci = CameraIdentifier()
+    results = ci.identify(img, arr)
+    assert isinstance(results, list)
+    for r in results:
+        assert "device" in r
+        assert "confidence" in r
+
+
+def test_camera_identifier_small_image():
+    img = _make_image(32, 32)
+    arr = np.array(img)
+    ci = CameraIdentifier()
+    results = ci.identify(img, arr)
+    assert results == []
+
+
+# Accessibility tests
+
+def test_accessibility_check():
+    img = _make_image(128, 128)
+    result = check_accessibility(img)
+    assert "information_loss" in result
+    assert "contrast_ratio" in result
+    assert "wcag_aa_pass" in result
+    assert "protanopia" in result["information_loss"]
+
+
+def test_cvd_simulation_output_size():
+    img = _make_image(64, 64)
+    simulated = simulate_cvd(img, "protanopia")
+    assert simulated.size == img.size
+
+
+def test_cvd_simulation_all_types():
+    img = _make_image(64, 64)
+    for cvd_type in ["protanopia", "deuteranopia", "tritanopia", "achromatopsia"]:
+        simulated = simulate_cvd(img, cvd_type)
+        assert simulated.size == img.size

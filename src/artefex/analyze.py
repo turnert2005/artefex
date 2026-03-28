@@ -58,6 +58,15 @@ class DegradationAnalyzer:
         except Exception:
             pass
 
+        # Run camera/device identification
+        try:
+            from artefex.detect_camera import detect_camera
+            camera_deg = detect_camera(img, arr)
+            if camera_deg:
+                result.degradations.append(camera_deg)
+        except Exception:
+            pass
+
         # Run platform fingerprinting
         try:
             from artefex.fingerprint import detect_platform

@@ -1314,6 +1314,158 @@ def duplicates(
     console.print(f"\n[yellow]{len(groups)} group(s)[/yellow] of duplicates found across {sum(len(g['files']) for g in groups)} files\n")
 
 
+@app.command(name="accessibility")
+def accessibility_cmd(
+    path: Path = typer.Argument(..., help="Image file to check"),
+    simulate: Optional[str] = typer.Option(None, "--simulate", "-s", help="Generate CVD simulation: protanopia, deuteranopia, tritanopia, achromatopsia, all"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output directory for simulations"),
+):
+    """Check color accessibility and simulate color blindness."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.accessibility import check_accessibility, generate_cvd_comparison, simulate_cvd, SIMULATION_TYPES
+    from PIL import Image as PILImage
+
+    img = PILImage.open(path).convert("RGB")
+
+    # Run accessibility check
+    result = check_accessibility(img)
+
+    console.print(f"\n[bold]Accessibility Report:[/bold] {path.name}\n")
+
+    table = Table(title="Color Vision Deficiency Impact")
+    table.add_column("Condition", style="bold")
+    table.add_column("Info Loss", justify="right")
+    table.add_column("Color Diff", justify="right")
+
+    for cvd_type, data in result["information_loss"].items():
+        color = "red" if data["loss_pct"] > 15 else "yellow" if data["loss_pct"] > 8 else "green"
+        table.add_row(
+            data["name"],
+            f"[{color}]{data['loss_pct']}%[/{color}]",
+            f"{data['mean_color_diff']:.1f}",
+        )
+
+    console.print(table)
+
+    wcag_color = "green" if result["wcag_aa_pass"] else "red"
+    console.print(f"\n  Contrast ratio: [{wcag_color}]{result['contrast_ratio']}:1[/{wcag_color}]  WCAG AA: {'Pass' if result['wcag_aa_pass'] else 'Fail'}")
+
+    if result["recommendations"]:
+        console.print(f"\n  [bold]Recommendations:[/bold]")
+        for rec in result["recommendations"]:
+            console.print(f"  [yellow]*[/yellow] {rec}")
+
+    # Generate simulations if requested
+    if simulate:
+        out_dir = output or path.parent / f"{path.stem}_accessibility"
+
+        if simulate == "all":
+            outputs = generate_cvd_comparison(path, out_dir)
+            console.print(f"\n  [green]Simulations saved to:[/green] {out_dir}")
+            for cvd_type, out_path in outputs.items():
+                console.print(f"    {cvd_type}: {Path(out_path).name}")
+        elif simulate in SIMULATION_TYPES:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            simulated = simulate_cvd(img, simulate)
+            out_path = out_dir / f"{path.stem}_{simulate}.png"
+            simulated.save(out_path)
+            console.print(f"\n  [green]Simulation saved to:[/green] {out_path}")
+        else:
+            console.print(f"\n  [red]Unknown type:[/red] {simulate}. Use: {', '.join(SIMULATION_TYPES.keys())}, or all")
+
+    console.print()
+
+
+@app.command()
+def benchmark(
+    path: Optional[Path] = typer.Argument(None, help="Image file to benchmark (or uses built-in test)"),
+    iterations: int = typer.Option(5, "--iterations", "-n", help="Number of iterations"),
+):
+    """Benchmark Artefex performance on an image."""
+    import time
+    import tempfile
+
+    from PIL import Image as PILImage
+
+    # Create test image if none provided
+    if path is None or not path.exists():
+        arr = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
+        img = PILImage.fromarray(arr)
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp.close()
+        img.save(tmp.name, quality=30)
+        path = Path(tmp.name)
+        console.print("[dim]Using generated 512x512 test image[/dim]")
+
+    import numpy as np
+
+    console.print(f"\n[bold]Benchmarking:[/bold] {path.name} ({iterations} iterations)\n")
+
+    analyzer = DegradationAnalyzer()
+
+    # Warm up
+    analyzer.analyze(path)
+
+    # Benchmark analyze
+    times = []
+    for _ in range(iterations):
+        start = time.perf_counter()
+        result = analyzer.analyze(path)
+        elapsed = time.perf_counter() - start
+        times.append(elapsed)
+
+    analyze_avg = np.mean(times)
+    analyze_std = np.std(times)
+
+    # Benchmark restore
+    from artefex.restore import RestorationPipeline
+    pipeline = RestorationPipeline(use_neural=False)
+    out_tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    out_tmp.close()
+
+    restore_times = []
+    for _ in range(iterations):
+        start = time.perf_counter()
+        pipeline.restore(path, result, Path(out_tmp.name))
+        elapsed = time.perf_counter() - start
+        restore_times.append(elapsed)
+
+    restore_avg = np.mean(restore_times)
+    restore_std = np.std(restore_times)
+
+    # Benchmark grade
+    from artefex.grade import compute_grade
+    grade_times = []
+    for _ in range(iterations):
+        start = time.perf_counter()
+        compute_grade(result)
+        elapsed = time.perf_counter() - start
+        grade_times.append(elapsed)
+
+    grade_avg = np.mean(grade_times)
+
+    Path(out_tmp.name).unlink(missing_ok=True)
+
+    table = Table(title="Performance Results")
+    table.add_column("Operation", style="bold")
+    table.add_column("Avg Time", justify="right")
+    table.add_column("Std Dev", justify="right")
+    table.add_column("Throughput", justify="right")
+
+    table.add_row("Analyze", f"{analyze_avg*1000:.1f} ms", f"{analyze_std*1000:.1f} ms", f"{1/analyze_avg:.1f} img/s")
+    table.add_row("Restore", f"{restore_avg*1000:.1f} ms", f"{restore_std*1000:.1f} ms", f"{1/restore_avg:.1f} img/s")
+    table.add_row("Grade", f"{grade_avg*1000:.3f} ms", "-", f"{1/grade_avg:.0f} img/s")
+
+    console.print(table)
+
+    total = analyze_avg + restore_avg
+    console.print(f"\n  [dim]Full pipeline (analyze + restore): {total*1000:.1f} ms ({1/total:.1f} img/s)[/dim]")
+    console.print(f"  [dim]Detectors: {len(result.degradations)} found in {analyze_avg*1000:.1f} ms[/dim]\n")
+
+
 @app.command()
 def version():
     """Show Artefex version and system info."""

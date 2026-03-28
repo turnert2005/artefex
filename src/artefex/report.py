@@ -79,5 +79,6 @@ def _recommend_action(degradation_name: str) -> str:
         "Platform Processing": "Image was processed by a social media platform (informational)",
         "AI-Generated Content": "Image shows signs of AI generation (informational)",
         "Steganography Detected": "Image may contain hidden embedded data (informational)",
+        "Device Identification": "Device type identified from sensor noise (informational)",
     }
     return actions.get(degradation_name, f"Address {degradation_name}")
