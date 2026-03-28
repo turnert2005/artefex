@@ -38,6 +38,14 @@ class DegradationAnalyzer:
             if degradation:
                 result.degradations.append(degradation)
 
+        # Run plugin detectors
+        try:
+            from artefex.plugins import get_plugin_registry
+            plugin_results = get_plugin_registry().run_detectors(img, arr)
+            result.degradations.extend(plugin_results)
+        except Exception:
+            pass  # Plugins are optional
+
         # Sort by estimated occurrence order (severity as proxy for how early it happened)
         result.degradations.sort(key=lambda d: d.severity, reverse=True)
 

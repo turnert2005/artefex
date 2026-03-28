@@ -26,7 +26,12 @@
       "Bash(python -c \"from artefex.web import app; print\\(''Web UI: OK''\\)\")",
       "Bash(python -c \"from artefex.video import VideoAnalyzer; print\\(''Video: OK''\\)\")",
       "Bash(python -m artefex.cli web)",
-      "Bash(python -m artefex.cli video-analyze test.mp4)"
+      "Bash(python -m artefex.cli video-analyze test.mp4)",
+      "Bash(python -m pytest tests/ -v -W error)",
+      "Bash(python -m artefex.cli plugins)",
+      "Bash(python -m artefex.cli restore _a.jpg --output _b.png)",
+      "Bash(python -m artefex.cli compare _a.jpg _b.png)",
+      "Bash(rm -f _a.jpg _b.png _a_vs__b_diff.png)"
     ]
   }
 }

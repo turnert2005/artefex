@@ -23,6 +23,58 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", "
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"}
 
 
+def _compute_ssim(img1: "np.ndarray", img2: "np.ndarray") -> float:
+    """Compute mean SSIM between two images (numpy float64 arrays, HxWxC)."""
+    import numpy as np
+
+    # Convert to grayscale for SSIM
+    if len(img1.shape) == 3:
+        gray1 = np.mean(img1, axis=2)
+        gray2 = np.mean(img2, axis=2)
+    else:
+        gray1, gray2 = img1, img2
+
+    C1 = (0.01 * 255) ** 2
+    C2 = (0.03 * 255) ** 2
+
+    mu1 = _uniform_filter(gray1, 11)
+    mu2 = _uniform_filter(gray2, 11)
+
+    mu1_sq = mu1 ** 2
+    mu2_sq = mu2 ** 2
+    mu1_mu2 = mu1 * mu2
+
+    sigma1_sq = _uniform_filter(gray1 ** 2, 11) - mu1_sq
+    sigma2_sq = _uniform_filter(gray2 ** 2, 11) - mu2_sq
+    sigma12 = _uniform_filter(gray1 * gray2, 11) - mu1_mu2
+
+    num = (2 * mu1_mu2 + C1) * (2 * sigma12 + C2)
+    den = (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2)
+
+    ssim_map = num / den
+    return float(np.mean(ssim_map))
+
+
+def _uniform_filter(arr: "np.ndarray", size: int) -> "np.ndarray":
+    """Simple uniform (box) filter via cumulative sums."""
+    import numpy as np
+
+    # Pad and compute running average using cumsum (fast, no PIL dependency)
+    pad = size // 2
+    padded = np.pad(arr, pad, mode="reflect")
+
+    # Row-wise cumsum
+    cs = np.cumsum(padded, axis=1)
+    row_avg = (cs[:, size:] - cs[:, :-size]) / size
+
+    # Column-wise cumsum
+    cs2 = np.cumsum(row_avg, axis=0)
+    result = (cs2[size:, :] - cs2[:-size, :]) / size
+
+    # Trim to original size
+    return result[: arr.shape[0], : arr.shape[1]]
+
+
 def _collect_images(path: Path) -> list[Path]:
     """Collect image files from a path (file or directory)."""
     if path.is_file():
@@ -318,6 +370,9 @@ def compare(
     mse = np.mean((arr_orig - arr_rest) ** 2)
     psnr = 10 * np.log10(255.0**2 / mse) if mse > 0 else float("inf")
 
+    # SSIM (structural similarity)
+    ssim = _compute_ssim(arr_orig, arr_rest)
+
     # Per-channel difference
     diff = np.abs(arr_orig - arr_rest)
     r_diff = diff[:, :, 0].mean()
@@ -338,6 +393,7 @@ def compare(
     table.add_row("Restored size", f"{img_rest.size[0]}x{img_rest.size[1]}")
     table.add_row("MSE", f"{mse:.2f}")
     table.add_row("PSNR", f"{psnr:.2f} dB")
+    table.add_row("SSIM", f"{ssim:.4f}")
     table.add_row("Mean diff (R)", f"{r_diff:.2f}")
     table.add_row("Mean diff (G)", f"{g_diff:.2f}")
     table.add_row("Mean diff (B)", f"{b_diff:.2f}")
@@ -550,6 +606,37 @@ def video_restore(
     if info.get("degradations_fixed"):
         console.print(f"[dim]Fixed: {', '.join(info['degradations_fixed'])}[/dim]")
     console.print(f"[green]Saved to:[/green] {info.get('output_path', out_path)}\n")
+
+
+@app.command()
+def plugins():
+    """List installed Artefex plugins."""
+    from artefex.plugins import get_plugin_registry
+
+    registry = get_plugin_registry()
+    info = registry.list_plugins()
+
+    table = Table(title="Installed Plugins")
+    table.add_column("Type", style="bold")
+    table.add_column("Name")
+
+    if not info["detectors"] and not info["restorers"]:
+        console.print("\n[dim]No plugins installed.[/dim]")
+        console.print(
+            "\n[dim]Plugins are Python packages that register via entry points.[/dim]"
+            "\n[dim]See: https://github.com/turnert2005/artefex#plugins[/dim]\n"
+        )
+        return
+
+    for name in info["detectors"]:
+        table.add_row("detector", name)
+    for name in info["restorers"]:
+        table.add_row("restorer", name)
+
+    console.print(table)
+    console.print(
+        f"\n{len(info['detectors'])} detector(s), {len(info['restorers'])} restorer(s)\n"
+    )
 
 
 @app.command()

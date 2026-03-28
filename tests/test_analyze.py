@@ -94,6 +94,7 @@ def test_multiple_recompressions():
     for _ in range(5):
         path = _save_jpeg(img, quality=30)
         img = Image.open(path)
+        img.load()  # Force read so file handle is released
 
     analyzer = DegradationAnalyzer()
     result = analyzer.analyze(path)

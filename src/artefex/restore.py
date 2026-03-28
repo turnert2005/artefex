@@ -84,6 +84,17 @@ class RestorationPipeline:
                 used_neural = True
                 continue
 
+            # Try plugin restorer
+            try:
+                from artefex.plugins import get_plugin_registry
+                plugin_result = get_plugin_registry().run_restorer(img, degradation)
+                if plugin_result is not None:
+                    img = plugin_result
+                    steps.append(f"[plugin] {degradation.name}")
+                    continue
+            except Exception:
+                pass
+
             # Fall back to classical methods
             restorer = self._restorers.get(degradation.name)
             if restorer:
