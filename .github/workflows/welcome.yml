@@ -1,0 +1,37 @@
+name: Welcome New Contributors
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            Welcome to Artefex! Thanks for opening your first issue.
+
+            A maintainer will review this soon. In the meantime:
+            - Check if this is covered by an existing issue
+            - Add as much detail as you can (OS, Python version, input file format)
+            - If this is a bug, a minimal reproduction helps a lot
+
+            See our [Contributing Guide](https://github.com/turnert2005/artefex/blob/main/CONTRIBUTING.md) for more info.
+          pr-message: |
+            Thanks for your first pull request to Artefex!
+
+            A maintainer will review this shortly. While you wait:
+            - Make sure CI checks pass (see the Actions tab)
+            - Link any related issue with Fixes #N in your PR description
+            - Keep your changes focused - one feature or fix per PR
+
+            We appreciate your contribution! See our [Contributing Guide](https://github.com/turnert2005/artefex/blob/main/CONTRIBUTING.md) for more info.
