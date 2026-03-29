@@ -1,0 +1,41 @@
+"area: detection":
+  - changed-files:
+      - any-glob-to-any-file: 'src/artefex/detect_*'
+
+"area: restoration":
+  - changed-files:
+      - any-glob-to-any-file: 'src/artefex/restore*'
+
+"area: cli":
+  - changed-files:
+      - any-glob-to-any-file: 'src/artefex/cli*'
+
+"area: web-ui":
+  - changed-files:
+      - any-glob-to-any-file: 'src/artefex/web*'
+
+"area: grading":
+  - changed-files:
+      - any-glob-to-any-file: 'src/artefex/grade*'
+
+"area: video":
+  - changed-files:
+      - any-glob-to-any-file: 'src/artefex/video*'
+
+"area: docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**'
+          - 'examples/**'
+
+"area: ci-cd":
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'Dockerfile'
+          - 'docker-compose.yml'
+
+"area: api":
+  - changed-files:
+      - any-glob-to-any-file: 'src/artefex/api*'
