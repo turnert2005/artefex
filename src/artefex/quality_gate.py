@@ -7,7 +7,7 @@ Usage as pre-commit hook (.pre-commit-config.yaml):
 
     repos:
       - repo: https://github.com/turnert2005/artefex
-        rev: v0.1.0
+        rev: v1.0.0
         hooks:
           - id: artefex-quality-gate
             args: ['--min-grade', 'C', '--max-severity', '0.7']
@@ -16,7 +16,6 @@ Usage in CI:
     artefex gate ./assets/ --min-grade C --min-score 40
 """
 
-import sys
 from pathlib import Path
 
 from artefex.analyze import DegradationAnalyzer

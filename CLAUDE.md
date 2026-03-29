@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Artefex is a neural forensic restoration tool for images, video, and GIFs. It diagnoses degradation chains (compression, noise, upscaling, watermarks, etc.) then intelligently reverses each step. Think `git log` for media degradation, followed by undo.
 
-**Version**: 0.1.0 (Alpha) | **License**: MIT | **Python**: 3.10+
+**Version**: 1.0.0 | **License**: MIT | **Python**: 3.10+
 
 ## Common Commands
 

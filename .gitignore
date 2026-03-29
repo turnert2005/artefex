@@ -19,3 +19,7 @@ htmlcov/
 *.pth
 *.onnx
 models/*.bin
+train/pretrained/
+train/converted/
+train/models/
+site/

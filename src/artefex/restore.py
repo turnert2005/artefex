@@ -76,11 +76,44 @@ class RestorationPipeline:
         used_neural = False
 
         for degradation in ordered:
-            # Try neural model first
-            if self._try_neural(degradation):
+            # Skip low-confidence detections to avoid false-positive damage.
+            # Also skip mild degradations where restoration may do more
+            # harm than good with classical methods.
+            if degradation.confidence < 0.5:
+                continue
+            if degradation.severity < 0.3:
+                continue
+
+            # Skip non-restorable categories (metadata, provenance)
+            if degradation.name in (
+                "EXIF Metadata Stripped",
+                "Platform Processing",
+                "AI-Generated Content",
+                "Steganography Detected",
+                "Copy-Move Forgery",
+                "Device Identification",
+            ):
+                continue
+
+            # Try neural model for degradations where it measurably
+            # outperforms classical methods. Each model has a minimum
+            # severity below which classical is better or neutral.
+            neural_min_severity = {
+                "compression": 2.0,   # Disabled: DnCNN-3 grayscale oversmoothes RGB
+                "noise": 0.3,         # DnCNN denoise is excellent (+10-20 dB)
+                "resolution": 0.5,    # NAFNet helps moderate+ blur (+0.8-1.2 dB)
+            }
+            min_sev = neural_min_severity.get(
+                degradation.category, 0.7
+            )
+            if degradation.severity >= min_sev and self._try_neural(
+                degradation
+            ):
                 model_key = self._neural_models.get(degradation.category)
                 img = self.neural_engine.run(model_key, img)
-                steps.append(f"[neural] {degradation.name} -> {model_key}")
+                steps.append(
+                    f"[neural] {degradation.name} -> {model_key}"
+                )
                 used_neural = True
                 continue
 
@@ -130,7 +163,23 @@ class RestorationPipeline:
         h, w, c = arr.shape
         result = arr.copy()
 
-        strength = degradation.severity * 0.6
+        # Measure actual block boundary discontinuity before applying
+        block_diff = 0.0
+        count = 0
+        for y in range(8, min(h - 1, 200), 8):
+            row_diff = np.mean(np.abs(arr[y] - arr[y - 1]))
+            neighbor_diff = np.mean(np.abs(arr[y - 1] - arr[y - 2]))
+            if neighbor_diff > 0:
+                block_diff += row_diff / (neighbor_diff + 1e-10)
+                count += 1
+        avg_ratio = block_diff / count if count > 0 else 1.0
+
+        # Only deblock if block boundaries are measurably worse than
+        # neighboring rows (ratio > 1.2 means 20% more discontinuity)
+        if avg_ratio < 1.2:
+            return img
+
+        strength = min(degradation.severity, 1.0) * 0.2
 
         # Smooth specifically at 8x8 block boundaries
         for y in range(8, h - 1, 8):
@@ -222,8 +271,10 @@ class RestorationPipeline:
 
     def _fix_resolution(self, img: Image.Image, degradation: Degradation) -> Image.Image:
         """Sharpen to partially recover lost high-frequency detail."""
-        strength = 0.5 + degradation.severity * 1.5
+        strength = 0.3 + degradation.severity * 0.7
         radius = 2
         return img.filter(
-            ImageFilter.UnsharpMask(radius=radius, percent=int(strength * 100), threshold=2)
+            ImageFilter.UnsharpMask(
+                radius=radius, percent=int(strength * 100), threshold=3
+            )
         )

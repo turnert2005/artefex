@@ -26,7 +26,7 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
-from artefex.models import AnalysisResult, Degradation
+from artefex.models import Degradation
 
 
 DETECTOR_GROUP = "artefex.detectors"

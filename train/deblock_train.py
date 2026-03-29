@@ -172,7 +172,7 @@ def train(
         opset_version=17,
     )
 
-    print(f"\nTraining complete.")
+    print("\nTraining complete.")
     print(f"Best loss: {best_loss:.6f}")
     print(f"ONNX model: {onnx_path}")
     print(f"\nTo use: artefex models import deblock-v1 {onnx_path}")

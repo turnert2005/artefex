@@ -34,11 +34,71 @@ Usage:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, TypedDict, Union
 
 import numpy as np
 
 from artefex.models import AnalysisResult, Degradation
+
+
+class _RestoreResultRequired(TypedDict):
+    """Required fields for RestoreResult."""
+
+    steps: list[str]
+    used_neural: bool
+    output_path: str
+
+
+class RestoreResult(_RestoreResultRequired, total=False):
+    """Result of a restore operation."""
+
+    message: str  # present when no degradation detected
+
+
+class GradeResult(TypedDict):
+    """Result of a grade operation."""
+
+    grade: str
+    score: float
+    description: str
+    breakdown: list[dict]
+
+
+class CompareResult(TypedDict):
+    """Result of a compare operation."""
+
+    mse: float
+    psnr: float
+    mean_diff_r: float
+    mean_diff_g: float
+    mean_diff_b: float
+    pixels_changed_pct: float
+
+
+class DuplicateGroup(TypedDict):
+    """A group of duplicate images."""
+
+    files: list[str]
+    similarity: float
+
+
+class HeatmapResult(TypedDict):
+    """Result of a heatmap generation."""
+
+    healthy_pct: float
+    moderate_pct: float
+    severe_pct: float
+    mean_score: float
+    worst_region: tuple
+
+
+class PlatformMatch(TypedDict):
+    """A platform detection match."""
+
+    platform: str
+    name: str
+    confidence: float
+    evidence: list[str]
 
 
 @dataclass
@@ -55,10 +115,10 @@ class AnalyzeResult:
     overall_severity: float
     _raw: AnalysisResult = field(repr=False, default_factory=AnalysisResult)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.degradations)
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return len(self.degradations) > 0
 
     @property
@@ -71,7 +131,7 @@ class AnalyzeResult:
             return self.degradations[0].name
         return None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "file": self.file,
             "format": self.format,
@@ -127,7 +187,7 @@ def restore(
     output_path: Union[str, Path],
     format: Optional[str] = None,
     use_neural: bool = True,
-) -> dict:
+) -> RestoreResult:
     """Analyze and restore an image.
 
     Args:
@@ -151,12 +211,17 @@ def restore(
     result = analyzer.analyze(in_path)
 
     if not result.degradations:
-        return {"steps": [], "used_neural": False, "output_path": str(out_path), "message": "No degradation detected"}
+        return {
+            "steps": [],
+            "used_neural": False,
+            "output_path": str(out_path),
+            "message": "No degradation detected",
+        }
 
     return pipeline.restore(in_path, result, out_path, format=format)
 
 
-def grade(path: Union[str, Path]) -> dict:
+def grade(path: Union[str, Path]) -> GradeResult:
     """Grade an image's quality on an A-F scale.
 
     Args:
@@ -176,7 +241,7 @@ def grade(path: Union[str, Path]) -> dict:
 def compare(
     path1: Union[str, Path],
     path2: Union[str, Path],
-) -> dict:
+) -> CompareResult:
     """Compare two images and return quality metrics.
 
     Args:
@@ -218,7 +283,7 @@ def find_duplicates(
     directory: Union[str, Path],
     threshold: float = 0.9,
     method: str = "phash",
-) -> list[dict]:
+) -> list[DuplicateGroup]:
     """Find duplicate images in a directory.
 
     Args:
@@ -242,7 +307,7 @@ def generate_heatmap(
     input_path: Union[str, Path],
     output_path: Union[str, Path],
     patch_size: int = 32,
-) -> dict:
+) -> HeatmapResult:
     """Generate a spatial degradation heatmap.
 
     Args:
@@ -258,7 +323,7 @@ def generate_heatmap(
     return _gen_heatmap(Path(input_path), Path(output_path), patch_size=patch_size)
 
 
-def detect_platform(path: Union[str, Path]) -> list[dict]:
+def detect_platform(path: Union[str, Path]) -> list[PlatformMatch]:
     """Detect which social media platform(s) likely processed an image.
 
     Args:

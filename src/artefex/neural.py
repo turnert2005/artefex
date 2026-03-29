@@ -1,6 +1,5 @@
 """Neural inference engine - runs ONNX models for restoration."""
 
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -19,9 +18,9 @@ class NeuralEngine:
 
     def _check_onnx(self) -> bool:
         try:
-            import onnxruntime
-            return True
-        except ImportError:
+            import importlib.util
+            return importlib.util.find_spec("onnxruntime") is not None
+        except (ImportError, ValueError):
             return False
 
     @property
@@ -89,7 +88,6 @@ class NeuralEngine:
             result_img = Image.fromarray(result_2d, mode="L")
             # Merge back with original color
             if img.mode == "RGB":
-                from PIL import ImageChops
                 orig_rgb = img.convert("YCbCr")
                 orig_y, orig_cb, orig_cr = orig_rgb.split()
                 result_img = result_img.resize(orig_y.size, Image.LANCZOS)
@@ -159,6 +157,10 @@ class NeuralEngine:
         return result
 
     def has_model_for(self, category: str) -> bool:
-        """Check if a neural model is available for a degradation category."""
+        """Check if a trained neural model is available for a category.
+
+        Returns False for untrained test models to prevent quality
+        degradation. Only trained models (> 10 KB) are used.
+        """
         model = self.registry.get_model_for_category(category)
-        return model is not None and model.is_available
+        return model is not None and model.is_available and model.is_trained

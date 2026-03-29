@@ -9,7 +9,7 @@ spliced regions from different cameras.
 """
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image
 
 from artefex.models import Degradation
 
@@ -172,7 +172,7 @@ class CameraIdentifier:
 
         # Chromatic noise (difference between channels)
         rg_diff = float_arr[:, :, 0] - float_arr[:, :, 1]
-        rb_diff = float_arr[:, :, 0] - float_arr[:, :, 2]
+        _ = float_arr[:, :, 0] - float_arr[:, :, 2]
 
         rg_lap = (
             rg_diff[:-2, 1:-1] + rg_diff[2:, 1:-1]

@@ -1,17 +1,16 @@
 """Artefex web UI - drag-and-drop forensic analysis and restoration."""
 
 import io
-import base64
 import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 
 from artefex.analyze import DegradationAnalyzer
 from artefex.restore import RestorationPipeline
 from artefex.report import render_report
+from artefex.grade import compute_grade
 
 app = FastAPI(title="Artefex", description="Neural forensic restoration")
 analyzer = DegradationAnalyzer()
@@ -258,20 +257,71 @@ INDEX_HTML = """<!DOCTYPE html>
   }
   .report-box.visible { display: block; }
 
+  .badges {
+    display: none;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .badges.visible { display: flex; }
+  .badge {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1.2rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    flex: 1;
+    min-width: 200px;
+  }
+  .badge .badge-icon { font-size: 1.4rem; }
+  .badge .badge-label {
+    font-size: 0.7rem;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+  }
+  .badge-green {
+    background: rgba(74, 222, 128, 0.12);
+    border: 1px solid var(--green);
+    color: var(--green);
+  }
+  .badge-yellow {
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid var(--yellow);
+    color: var(--yellow);
+  }
+  .badge-orange {
+    background: rgba(251, 146, 60, 0.12);
+    border: 1px solid #fb923c;
+    color: #fb923c;
+  }
+  .badge-red {
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid var(--red);
+    color: var(--red);
+  }
+
   @media (max-width: 600px) {
     .preview-area.visible { grid-template-columns: 1fr; }
     .actions { flex-direction: column; }
+    .badges { flex-direction: column; }
   }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>artefex</h1>
-  <p class="subtitle">Neural forensic restoration - diagnose and reverse media degradation chains</p>
+  <p class="subtitle">Image forensic analysis - detect AI-generated content
+  and reverse degradation</p>
 
   <div class="dropzone" id="dropzone">
     <div class="icon">+</div>
-    <p>Drop an image here or click to select</p>
+    <p>Drop an image here to analyze it</p>
+    <p style="margin-top:0.4rem;font-size:0.75rem">Checks for AI generation,
+    quality issues, and degradation</p>
     <input type="file" id="fileInput" accept="image/*" style="display:none">
   </div>
 
@@ -301,8 +351,13 @@ INDEX_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="badges" id="badges">
+    <div class="badge" id="aiBadge"></div>
+    <div class="badge" id="gradeBadge"></div>
+  </div>
+
   <div class="results" id="results">
-    <div class="results-header">Degradation Chain</div>
+    <div class="results-header">Analysis Results</div>
     <table>
       <thead>
         <tr><th>#</th><th>Degradation</th><th>Category</th><th>Confidence</th><th>Severity</th></tr>
@@ -383,6 +438,48 @@ async function handleFile(file) {
           '</tr>';
       });
     }
+
+    // AI detection badge
+    const aiDeg = data.degradations.find(
+      d => d.name === 'AI-Generated Content' && d.confidence > 0.3
+    );
+    const aiBadge = document.getElementById('aiBadge');
+    if (aiDeg) {
+      const pct = Math.round(aiDeg.confidence * 100);
+      aiBadge.className = aiDeg.confidence > 0.7
+        ? 'badge badge-red' : 'badge badge-orange';
+      aiBadge.innerHTML =
+        '<span class="badge-icon">!</span>' +
+        '<div><div>Likely AI-Generated (' + pct +
+        '%)</div><div class="badge-label">' +
+        'AI detection</div></div>';
+    } else {
+      aiBadge.className = 'badge badge-green';
+      aiBadge.innerHTML =
+        '<span class="badge-icon">&#10003;</span>' +
+        '<div><div>Likely Real Photo</div>' +
+        '<div class="badge-label">' +
+        'AI detection</div></div>';
+    }
+
+    // Quality grade badge
+    const gradeBadge = document.getElementById('gradeBadge');
+    if (data.grade) {
+      const gc = {'A':'badge-green','B':'badge-green',
+        'C':'badge-yellow','D':'badge-orange',
+        'F':'badge-red'}[data.grade] || 'badge-yellow';
+      gradeBadge.className = 'badge ' + gc;
+      gradeBadge.innerHTML =
+        '<span class="badge-icon">' + data.grade +
+        '</span><div><div>Quality Score: ' +
+        Math.round(data.score) + '/100</div>' +
+        '<div class="badge-label">' +
+        'Overall grade</div></div>';
+    } else {
+      gradeBadge.style.display = 'none';
+    }
+    document.getElementById('badges').className =
+      'badges visible';
 
     document.getElementById('results').className = 'results visible';
     document.getElementById('actions').style.display = 'flex';
@@ -495,11 +592,16 @@ async def api_analyze(file: UploadFile = File(...)):
 
     try:
         result = analyzer.analyze(tmp_path)
+        grade_info = compute_grade(result)
         return JSONResponse({
             "file": file.filename,
             "format": result.file_format,
             "dimensions": list(result.dimensions),
-            "overall_severity": round(result.overall_severity, 3),
+            "overall_severity": round(
+                result.overall_severity, 3
+            ),
+            "grade": grade_info["grade"],
+            "score": round(grade_info["score"], 1),
             "degradations": [
                 {
                     "name": d.name,

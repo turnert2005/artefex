@@ -7,7 +7,7 @@
 [![CI](https://github.com/turnert2005/artefex/actions/workflows/ci.yml/badge.svg)](https://github.com/turnert2005/artefex/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-0.1.0-purple.svg)](https://github.com/turnert2005/artefex/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-1.0.0-purple.svg)](https://github.com/turnert2005/artefex/releases/tag/v1.0.0)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 [Getting Started](#install) | [Commands](#commands) | [Contributing](CONTRIBUTING.md) | [Discussions](https://github.com/turnert2005/artefex/discussions)
@@ -26,7 +26,8 @@ Think of it as `git log` for media degradation, followed by intelligent undo.
 |---|---|---|
 | **Approach** | Blindly upscale/denoise everything | Diagnose first, then reverse each degradation step |
 | **Analysis** | None | 13 forensic detectors - JPEG artifacts, platform fingerprinting, AI detection, steganography, forgery |
-| **Restoration** | One-size-fits-all filter | Targeted fix per degradation - neural (ONNX) with classical fallback |
+| **AI Detection** | None | SAFE neural classifier - 98.9% accuracy on modern generators (GPT-4o, FLUX, SD-3, Midjourney) |
+| **Restoration** | One-size-fits-all filter | Neural denoising (+13-21 dB), neural deblurring (+0.6-1.2 dB), classical JPEG/color correction |
 | **Extensibility** | Closed | Plugin system for custom detectors and restorers |
 | **Interface** | Usually GUI-only | CLI + Python API + Web UI + Docker |
 
@@ -53,6 +54,33 @@ Or with Docker:
 ```bash
 docker compose up             # web UI at http://localhost:8787
 ```
+
+## Neural Models
+
+Artefex ships with pre-trained neural models for enhanced restoration and AI detection. After installing, download the models:
+
+```bash
+# Download and install all neural models (~76 MB total)
+python train/convert_pretrained.py --install
+```
+
+Or download individually from the [releases page](https://github.com/turnert2005/artefex/releases) and import:
+
+```bash
+artefex models import denoise-v1 denoise_v1.onnx
+artefex models import sharpen-v1 sharpen_v1.onnx
+artefex models import aigen-detect-v1 aigen_detect_v1.onnx
+artefex models list                              # verify installation
+```
+
+| Model | Task | Size | Performance | License |
+|-------|------|------|-------------|---------|
+| DnCNN color blind | Noise removal | 2.6 MB | +13-21 dB PSNR improvement | MIT (KAIR) |
+| NAFNet GoPro-w32 | Blur/detail recovery | 65.7 MB | +0.6-1.2 dB on moderate blur | MIT (megvii) |
+| SAFE | AI image detection | 5.5 MB | 98.9% accuracy on modern generators | Apache 2.0 |
+| DnCNN-3 | JPEG deblocking | 2.5 MB | Marginal (classical used instead) | MIT (KAIR) |
+
+Artefex works without neural models - classical signal processing handles all restoration. Neural models enhance quality for noise and blur, and enable AI detection.
 
 ## Quick start
 
@@ -161,7 +189,7 @@ artefex plugins                               # list installed plugins
 | Overlay | Watermarks | Tile correlation + histogram peaks + alpha channel |
 | Metadata | EXIF stripping | Metadata presence/completeness checks |
 | Provenance | Platform fingerprint | Dimension/compression/EXIF signatures for Twitter, Instagram, WhatsApp, Facebook, Telegram, Discord, Imgur |
-| Provenance | AI-generated content | Frequency spectrum, histogram smoothness, noise uniformity, patch consistency |
+| Provenance | AI-generated content | SAFE neural classifier (98.9% accuracy) with heuristic fallback (frequency, histogram, noise, patch analysis) |
 | Security | Steganography | LSB analysis, chi-square test, entropy, pairs analysis |
 | Provenance | Camera/device ID | Sensor noise PRNU analysis (DSLR, smartphone, webcam, scanner) |
 | Forgery | Copy-move detection | Patch-based feature matching for cloned regions |
@@ -254,12 +282,17 @@ artefex analyze <image>
 
 ## Roadmap
 
-- [x] **v0.1** - Detection engine + classical restoration
-- [x] **v0.2** - Neural models, web UI, video, training, plugins
-- [x] **v0.3** - Platform fingerprinting, AI detection, steganography, grading
-- [ ] **v0.4** - Pre-trained model weights + model hub
-- [ ] **v0.5** - Temporal coherence for video + audio support
-- [ ] **v1.0** - Stable API + community model zoo
+- [x] **v0.1** - Detection engine (8 detectors) + classical restoration pipeline
+- [x] **v0.2** - Neural ONNX models, web UI, video/GIF support, training pipeline, plugin system
+- [x] **v0.3** - Platform fingerprinting (7 platforms), AI-generated detection, steganography, camera ID, copy-move forgery, A-F grading, accessibility checker, color palette extraction, orientation correction, duplicate detection, quality gate for CI/CD, batch dashboard, HTML reports with histograms, forensic narrative generation
+- [x] **v0.4** - Test ONNX model generation, model download infrastructure, SHA-256 verification
+- [x] **v0.5** - Video temporal coherence, audio passthrough via ffmpeg, multi-codec output
+- [x] **v0.8** - 244 tests (unit + integration + edge cases + E2E), API stability with TypedDicts
+- [x] **v1.0** - Pre-trained neural models (DnCNN denoiser, NAFNet deblurring, SAFE AI detection), stable API **(current)**
+- [ ] **v1.1** - FBCNN for JPEG deblocking (288 MB, Apache 2.0 - replaces DnCNN-3 for dramatic JPEG improvement)
+- [ ] **v1.2** - Interactive web UI with WebSocket progress and batch management
+- [ ] **v1.3** - Expanded neural model zoo (super-resolution, inpainting, dehazing)
+- [ ] **v1.4** - Multi-class AI detection (real vs AI-generated vs AI-modified vs AI-upscaled)
 
 ## Contributing
 

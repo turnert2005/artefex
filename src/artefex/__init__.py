@@ -1,6 +1,6 @@
 """artefex: Neural forensic restoration for degraded media."""
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 # Public API - import the most useful things at the top level
 from artefex.api import (

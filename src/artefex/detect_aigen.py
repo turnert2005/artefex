@@ -17,7 +17,12 @@ from artefex.models import Degradation
 
 
 class AIGeneratedDetector:
-    """Detects whether an image was likely AI-generated."""
+    """Detects whether an image was likely AI-generated.
+
+    When a trained neural model (aigen-detect-v1) is available, uses it
+    for high-accuracy classification. Falls back to heuristic analysis
+    when no model is present.
+    """
 
     def detect(self, img: Image.Image, arr: np.ndarray) -> Degradation | None:
         if len(arr.shape) < 3 or arr.shape[2] < 3:
@@ -26,6 +31,11 @@ class AIGeneratedDetector:
         h, w = arr.shape[:2]
         if h < 64 or w < 64:
             return None
+
+        # Try neural model first if available
+        neural_result = self._try_neural_detection(img)
+        if neural_result is not None:
+            return neural_result
 
         indicators = 0
         total_weight = 0
@@ -260,3 +270,80 @@ class AIGeneratedDetector:
                 scores.append(0.0)
 
         return max(scores) if scores else 0.0
+
+    def _try_neural_detection(
+        self, img: Image.Image
+    ) -> Degradation | None:
+        """Use neural AI detection model if a trained one is available."""
+        try:
+            from artefex.models_registry import ModelRegistry
+            from artefex.neural import NeuralEngine
+
+            registry = ModelRegistry()
+            model = registry.get_model("aigen-detect-v1")
+            if model is None or not model.is_available or not model.is_trained:
+                return None
+
+            engine = NeuralEngine(registry=registry)
+            if not engine.available:
+                return None
+
+            # Run the detection model
+            # Detection models output a probability map or classification
+            # score rather than a restored image.
+            import onnxruntime as ort
+
+            session = ort.InferenceSession(
+                str(model.local_path),
+                providers=["CPUExecutionProvider"],
+            )
+
+            # SAFE expects a 256x256 center crop, not resize.
+            # Center crop preserves pixel-level artifacts that the
+            # detector looks for. Pad if image is smaller.
+            input_h, input_w = model.input_size
+            rgb = img.convert("RGB")
+            w, h = rgb.size
+            if w >= input_w and h >= input_h:
+                left = (w - input_w) // 2
+                top = (h - input_h) // 2
+                rgb = rgb.crop(
+                    (left, top, left + input_w, top + input_h)
+                )
+            else:
+                rgb = rgb.resize(
+                    (input_w, input_h), Image.LANCZOS
+                )
+            arr = np.array(rgb, dtype=np.float32) / 255.0
+            arr = arr.transpose(2, 0, 1)[np.newaxis, :, :, :]
+
+            input_name = session.get_inputs()[0].name
+            output = session.run(None, {input_name: arr})[0]
+
+            # Interpret output as probability of AI generation
+            # Most detection models output [real_prob, ai_prob] or a
+            # single score where higher = more likely AI
+            if output.size == 1:
+                ai_prob = float(output.flat[0])
+            elif output.shape[-1] >= 2:
+                ai_prob = float(output.flat[1])
+            else:
+                ai_prob = float(np.mean(output))
+
+            ai_prob = max(0.0, min(1.0, ai_prob))
+
+            if ai_prob < 0.3:
+                return None
+
+            return Degradation(
+                name="AI-Generated Content",
+                confidence=ai_prob,
+                severity=min(0.5, ai_prob * 0.5),
+                detail=(
+                    f"Neural AI detection confidence: {ai_prob:.0%}"
+                ),
+                category="provenance",
+            )
+
+        except Exception:
+            return None

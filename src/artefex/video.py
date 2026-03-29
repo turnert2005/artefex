@@ -1,5 +1,9 @@
 """Video analysis and restoration - frame-by-frame with temporal coherence."""
 
+import logging
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -10,6 +14,15 @@ from PIL import Image
 from artefex.analyze import DegradationAnalyzer
 from artefex.models import AnalysisResult, Degradation
 from artefex.restore import RestorationPipeline
+
+logger = logging.getLogger(__name__)
+
+SUPPORTED_CODECS = ("mp4v", "avc1", "XVID")
+
+
+def _has_ffmpeg() -> bool:
+    """Check whether ffmpeg is available on PATH."""
+    return shutil.which("ffmpeg") is not None
 
 
 @dataclass
@@ -79,7 +92,10 @@ class VideoAnalyzer:
         )
 
         # Sample frames evenly across the video
-        sample_indices = np.linspace(0, frame_count - 1, min(self.sample_count, frame_count), dtype=int)
+        sample_count = min(self.sample_count, frame_count)
+        sample_indices = np.linspace(
+            0, frame_count - 1, sample_count, dtype=int
+        )
         frame_results = []
 
         for i, frame_idx in enumerate(sample_indices):
@@ -134,9 +150,14 @@ class VideoAnalyzer:
 class VideoRestorer:
     """Restores video files frame by frame with temporal smoothing."""
 
-    def __init__(self, use_neural: bool = True):
+    def __init__(
+        self,
+        use_neural: bool = True,
+        temporal_strength: float = 0.15,
+    ):
         self.analyzer = DegradationAnalyzer()
         self.pipeline = RestorationPipeline(use_neural=use_neural)
+        self.temporal_strength = max(0.0, min(1.0, temporal_strength))
 
     def restore(
         self,
@@ -144,8 +165,17 @@ class VideoRestorer:
         output_path: Path,
         analysis: Optional[VideoAnalysisResult] = None,
         on_progress: Optional[callable] = None,
+        codec: str = "mp4v",
+        quality: int = 95,
     ) -> dict:
         cv2 = _check_cv2()
+
+        if codec not in SUPPORTED_CODECS:
+            raise ValueError(
+                f"Unsupported codec '{codec}'. "
+                f"Choose from: {', '.join(SUPPORTED_CODECS)}"
+            )
+        quality = max(0, min(100, quality))
 
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
@@ -165,7 +195,8 @@ class VideoRestorer:
         # Build a "representative" degradation list from the summary
         representative_degradations = []
         for name, stats in analysis.degradation_summary.items():
-            if stats["frequency"] > 0.3:  # Present in >30% of sampled frames
+            # Present in >30% of sampled frames
+            if stats["frequency"] > 0.3:
                 representative_degradations.append(Degradation(
                     name=name,
                     confidence=stats["avg_confidence"],
@@ -175,18 +206,46 @@ class VideoRestorer:
 
         if not representative_degradations:
             cap.release()
-            return {"frames_processed": 0, "message": "No consistent degradation found"}
+            return {
+                "frames_processed": 0,
+                "message": "No consistent degradation found",
+            }
 
         representative_result = AnalysisResult(
             degradations=representative_degradations,
         )
 
-        # Set up video writer
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        # Extract audio from the original video (if ffmpeg is available)
+        audio_tmp_path = None
+        has_audio = False
+        if _has_ffmpeg():
+            audio_tmp_path = Path(
+                tempfile.mktemp(suffix=".aac")
+            )
+            has_audio = _extract_audio(
+                video_path, audio_tmp_path
+            )
+        else:
+            logger.info(
+                "ffmpeg not found on PATH - skipping audio passthrough"
+            )
 
-        import tempfile
+        # Write restored frames to a temp file when we need to mux audio.
+        # Otherwise write directly to the final output path.
+        video_write_path = output_path
+        if has_audio:
+            video_write_path = Path(
+                tempfile.mktemp(suffix=output_path.suffix)
+            )
+
+        # Set up video writer with the requested codec
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        out = cv2.VideoWriter(
+            str(video_write_path), fourcc, fps, (width, height)
+        )
+
         frames_processed = 0
+        prev_frame: Optional[np.ndarray] = None
 
         for frame_idx in range(frame_count):
             ret, frame = cap.read()
@@ -197,21 +256,50 @@ class VideoRestorer:
             pil_img = Image.fromarray(rgb)
 
             # Restore via pipeline using the representative analysis
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_in:
+            with tempfile.NamedTemporaryFile(
+                suffix=".png", delete=False
+            ) as tmp_in:
                 tmp_in_path = Path(tmp_in.name)
                 pil_img.save(tmp_in_path)
 
-            tmp_out_path = tmp_in_path.with_stem(tmp_in_path.stem + "_out")
+            tmp_out_path = tmp_in_path.with_stem(
+                tmp_in_path.stem + "_out"
+            )
 
             try:
-                self.pipeline.restore(tmp_in_path, representative_result, tmp_out_path)
+                self.pipeline.restore(
+                    tmp_in_path,
+                    representative_result,
+                    tmp_out_path,
+                )
                 restored = Image.open(tmp_out_path).convert("RGB")
 
                 # Ensure same size
                 if restored.size != (width, height):
-                    restored = restored.resize((width, height), Image.LANCZOS)
+                    restored = restored.resize(
+                        (width, height), Image.LANCZOS
+                    )
 
-                restored_bgr = cv2.cvtColor(np.array(restored), cv2.COLOR_RGB2BGR)
+                restored_arr = np.array(restored, dtype=np.float32)
+
+                # Temporal coherence - blend with previous restored
+                # frame to reduce flickering between frames
+                if (
+                    prev_frame is not None
+                    and self.temporal_strength > 0
+                ):
+                    blended = (
+                        (1.0 - self.temporal_strength) * restored_arr
+                        + self.temporal_strength * prev_frame
+                    )
+                    restored_arr = blended
+
+                prev_frame = restored_arr.copy()
+
+                restored_bgr = cv2.cvtColor(
+                    restored_arr.astype(np.uint8),
+                    cv2.COLOR_RGB2BGR,
+                )
                 out.write(restored_bgr)
                 frames_processed += 1
             finally:
@@ -224,8 +312,110 @@ class VideoRestorer:
         cap.release()
         out.release()
 
+        # Mux audio back into the restored video
+        if has_audio and audio_tmp_path is not None:
+            _mux_audio(video_write_path, audio_tmp_path, output_path)
+            video_write_path.unlink(missing_ok=True)
+
+        # Clean up audio temp file
+        if audio_tmp_path is not None:
+            audio_tmp_path.unlink(missing_ok=True)
+
         return {
             "frames_processed": frames_processed,
             "output_path": str(output_path),
-            "degradations_fixed": [d.name for d in representative_degradations],
+            "degradations_fixed": [
+                d.name for d in representative_degradations
+            ],
+            "codec": codec,
+            "quality": quality,
+            "audio_preserved": has_audio,
         }
+
+
+def _extract_audio(video_path: Path, audio_path: Path) -> bool:
+    """Extract audio from a video file using ffmpeg.
+
+    Returns True if audio was successfully extracted, False otherwise.
+    """
+    try:
+        # Check if the video actually contains an audio stream
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a",
+                "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0",
+                str(video_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if not probe.stdout.strip():
+            logger.info("No audio stream found in source video")
+            return False
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(video_path),
+                "-vn",
+                "-acodec", "copy",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "ffmpeg audio extraction failed: %s",
+                result.stderr[:200],
+            )
+            return False
+        return audio_path.exists() and audio_path.stat().st_size > 0
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        logger.warning("Audio extraction skipped: %s", exc)
+        return False
+
+
+def _mux_audio(
+    video_path: Path,
+    audio_path: Path,
+    output_path: Path,
+) -> bool:
+    """Combine a video file (no audio) with an audio file using ffmpeg.
+
+    Returns True on success, False otherwise.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(video_path),
+                "-i", str(audio_path),
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-shortest",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "ffmpeg audio muxing failed: %s",
+                result.stderr[:200],
+            )
+            # Fall back - just copy the video without audio
+            if video_path != output_path:
+                shutil.copy2(str(video_path), str(output_path))
+            return False
+        return True
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        logger.warning("Audio muxing skipped: %s", exc)
+        if video_path != output_path:
+            shutil.copy2(str(video_path), str(output_path))
+        return False

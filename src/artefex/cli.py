@@ -72,7 +72,7 @@ def _read_stdin_image() -> Optional[Path]:
         return None
 
 
-def _compute_ssim(img1: "np.ndarray", img2: "np.ndarray") -> float:
+def _compute_ssim(img1, img2) -> float:
     """Compute mean SSIM between two images (numpy float64 arrays, HxWxC)."""
     import numpy as np
 
@@ -104,7 +104,7 @@ def _compute_ssim(img1: "np.ndarray", img2: "np.ndarray") -> float:
     return float(np.mean(ssim_map))
 
 
-def _uniform_filter(arr: "np.ndarray", size: int) -> "np.ndarray":
+def _uniform_filter(arr, size: int):
     """Simple uniform (box) filter via cumulative sums."""
     import numpy as np
 
@@ -235,7 +235,7 @@ def analyze(
         files = [tmp_downloaded]
     # Check if it's a URL
     elif path.startswith("http://") or path.startswith("https://"):
-        console.print(f"[dim]Downloading image from URL...[/dim]")
+        console.print("[dim]Downloading image from URL...[/dim]")
         tmp_downloaded = _download_url(path)
         if tmp_downloaded is None:
             raise typer.Exit(1)
@@ -692,7 +692,7 @@ def grade(
         files = _collect_images(p)
 
     if not files:
-        console.print(f"[red]Error:[/red] No image files found")
+        console.print("[red]Error:[/red] No image files found")
         raise typer.Exit(1)
 
     analyzer = DegradationAnalyzer()
@@ -788,8 +788,8 @@ def timeline(
         return
 
     console.print(f"\n[bold]Degradation Timeline:[/bold] {path.name}\n")
-    console.print(f"  [dim]Original capture[/dim]")
-    console.print(f"  [green]|[/green]")
+    console.print("  [dim]Original capture[/dim]")
+    console.print("  [green]|[/green]")
 
     # Order by severity (highest = earliest estimated degradation)
     ordered = sorted(result.degradations, key=lambda d: d.severity, reverse=True)
@@ -814,8 +814,8 @@ def timeline(
         console.print(f"  [{color}]|[/{color}]   [{color}]{bar}[/{color}] {sev_pct}% severity, {conf_pct}% confidence")
         console.print(f"  [{color}]|[/{color}]   [dim]{d.detail[:80]}[/dim]")
 
-    console.print(f"  [red]|[/red]")
-    console.print(f"  [red]v[/red]")
+    console.print("  [red]|[/red]")
+    console.print("  [red]v[/red]")
     console.print(f"  [dim]Current state (overall severity: {result.overall_severity:.0%})[/dim]")
     console.print()
     console.print(f"  [dim]Run `artefex restore {path.name}` to reverse this chain.[/dim]\n")
@@ -824,7 +824,7 @@ def timeline(
 @app.command()
 def models(
     action: str = typer.Argument(
-        "list", help="Action: list, import"
+        "list", help="Action: list, import, generate-test"
     ),
     key: Optional[str] = typer.Argument(None, help="Model key (for import)"),
     path: Optional[Path] = typer.Argument(None, help="Path to model file (for import)"),
@@ -845,7 +845,12 @@ def models(
         table.add_column("Status", justify="center")
 
         for m in all_models:
-            status = "[green]installed[/green]" if m.is_available else "[dim]not installed[/dim]"
+            if m.is_available and m.is_trained:
+                status = "[green]trained[/green]"
+            elif m.is_available:
+                status = "[yellow]test model[/yellow]"
+            else:
+                status = "[dim]not installed[/dim]"
             table.add_row(m.key, m.name, m.category, m.version, status)
 
         console.print(table)
@@ -878,8 +883,24 @@ def models(
             console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(1)
 
+    elif action == "generate-test":
+        try:
+            models = registry.generate_test_models()
+            for m in models:
+                console.print(f"  Generated {m.key} -> {m.local_path}")
+            console.print(
+                f"\n[green]Generated {len(models)} test models.[/green]"
+            )
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
+
     else:
-        console.print(f"[red]Error:[/red] Unknown action: {action}. Use 'list' or 'import'.")
+        console.print(
+            "[red]Error:[/red] Unknown action: "
+            f"{action}. Use 'list', 'import', or "
+            "'generate-test'."
+        )
         raise typer.Exit(1)
 
 
@@ -1103,7 +1124,7 @@ def web(
         console.print("[red]Error:[/red] Web UI requires: pip install artefex\\[web]")
         raise typer.Exit(1)
 
-    console.print(f"\n[bold]Artefex Web UI[/bold]")
+    console.print("\n[bold]Artefex Web UI[/bold]")
     console.print(f"Open [link=http://{host}:{port}]http://{host}:{port}[/link] in your browser\n")
     uvicorn.run("artefex.web:app", host=host, port=port, log_level="info")
 
@@ -1183,7 +1204,7 @@ def health(
         files = _collect_images(p)
 
     if not files:
-        console.print(f"[red]Error:[/red] No images found")
+        console.print("[red]Error:[/red] No images found")
         raise typer.Exit(1)
 
     analyzer = DegradationAnalyzer()
@@ -1289,7 +1310,7 @@ def fix(
     # Handle URL
     tmp_downloaded = None
     if path.startswith("http://") or path.startswith("https://"):
-        console.print(f"[dim]Downloading...[/dim]")
+        console.print("[dim]Downloading...[/dim]")
         tmp_downloaded = _download_url(path)
         if tmp_downloaded is None:
             raise typer.Exit(1)
@@ -1307,7 +1328,7 @@ def fix(
     console.print(f"\n  [bold]{file.name}[/bold]  [{grade_info['color']}]{grade_info['grade']}[/{grade_info['color']}] ({grade_info['score']}/100)")
 
     if not result.degradations:
-        console.print(f"  [green]Clean image - no restoration needed.[/green]\n")
+        console.print("  [green]Clean image - no restoration needed.[/green]\n")
         if tmp_downloaded:
             tmp_downloaded.unlink(missing_ok=True)
         return
@@ -1413,14 +1434,14 @@ def audit(
         console.print(table)
 
     if platforms:
-        console.print(f"\n  [bold]Platform attribution:[/bold]")
+        console.print("\n  [bold]Platform attribution:[/bold]")
         for p in platforms[:3]:
             console.print(f"    {p['name']}: {p['confidence']:.0%} confidence")
 
-    console.print(f"\n  [bold]Spatial analysis:[/bold]")
+    console.print("\n  [bold]Spatial analysis:[/bold]")
     console.print(f"    Healthy: {heatmap_stats['healthy_pct']:.0%}  Moderate: {heatmap_stats['moderate_pct']:.0%}  Severe: {heatmap_stats['severe_pct']:.0%}")
 
-    console.print(f"\n  [bold]Output files:[/bold]")
+    console.print("\n  [bold]Output files:[/bold]")
     console.print(f"    Heatmap:  {heatmap_path}")
     console.print(f"    Report:   {html_path}")
     if result.degradations:
@@ -1524,7 +1545,7 @@ def accessibility_cmd(
     console.print(f"\n  Contrast ratio: [{wcag_color}]{result['contrast_ratio']}:1[/{wcag_color}]  WCAG AA: {'Pass' if result['wcag_aa_pass'] else 'Fail'}")
 
     if result["recommendations"]:
-        console.print(f"\n  [bold]Recommendations:[/bold]")
+        console.print("\n  [bold]Recommendations:[/bold]")
         for rec in result["recommendations"]:
             console.print(f"  [yellow]*[/yellow] {rec}")
 
@@ -1618,7 +1639,7 @@ def rename_by_grade(
 
     files = _collect_images(path)
     if not files:
-        console.print(f"[red]Error:[/red] No images found")
+        console.print("[red]Error:[/red] No images found")
         raise typer.Exit(1)
 
     analyzer = DegradationAnalyzer()
@@ -1649,7 +1670,7 @@ def rename_by_grade(
     console.print(table)
 
     if dry_run:
-        console.print(f"\n[dim]Dry run - no files renamed. Remove --dry-run to apply.[/dim]\n")
+        console.print("\n[dim]Dry run - no files renamed. Remove --dry-run to apply.[/dim]\n")
         return
 
     renamed = 0
@@ -1672,7 +1693,7 @@ def palette(
         console.print(f"[red]Error:[/red] File not found: {path}")
         raise typer.Exit(1)
 
-    from artefex.palette import extract_palette, render_palette_ascii
+    from artefex.palette import extract_palette
     from PIL import Image as PILImage
 
     img = PILImage.open(path).convert("RGB")
@@ -1819,6 +1840,7 @@ def benchmark(
     import time
     import tempfile
 
+    import numpy as np
     from PIL import Image as PILImage
 
     # Create test image if none provided
@@ -1830,8 +1852,6 @@ def benchmark(
         img.save(tmp.name, quality=30)
         path = Path(tmp.name)
         console.print("[dim]Using generated 512x512 test image[/dim]")
-
-    import numpy as np
 
     console.print(f"\n[bold]Benchmarking:[/bold] {path.name} ({iterations} iterations)\n")
 
@@ -1911,7 +1931,7 @@ def version():
 """
     console.print(banner)
     console.print(f"  [bold]Artefex[/bold] v{__version__}")
-    console.print(f"  Neural forensic restoration\n")
+    console.print("  Neural forensic restoration\n")
 
     # Check optional deps
     deps = []

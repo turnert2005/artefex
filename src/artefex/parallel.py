@@ -4,7 +4,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
-from artefex.models import AnalysisResult
 
 
 def _analyze_single(file_path_str: str) -> dict:

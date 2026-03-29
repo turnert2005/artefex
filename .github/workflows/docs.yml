@@ -1,5 +1,8 @@
 name: Deploy Docs
 
+# NOTE: Requires GitHub Pages to be enabled in repo Settings > Pages.
+# Set source to "GitHub Actions" (not "Deploy from a branch").
+
 on:
   push:
     branches: [main]

@@ -4,12 +4,10 @@ import base64
 import io
 from pathlib import Path
 
-import numpy as np
 from PIL import Image
 
 from artefex.analyze import DegradationAnalyzer
 from artefex.grade import compute_grade
-from artefex.models import AnalysisResult
 
 
 def generate_dashboard(

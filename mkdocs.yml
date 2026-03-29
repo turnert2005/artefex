@@ -24,6 +24,8 @@ nav:
   - Detectors: detectors.md
   - Architecture: architecture.md
   - Contributing: contributing.md
+  - Roadmap to v1.0: v1-roadmap.md
+  - GPU Training Roadmap: gpu-training-roadmap.md
   - Changelog: changelog.md
 
 markdown_extensions:

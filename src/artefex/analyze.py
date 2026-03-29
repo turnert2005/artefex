@@ -387,7 +387,7 @@ class DegradationAnalyzer:
         sobel_v = np.abs(np.diff(gray, axis=1))
 
         edge_mask_h = sobel_h > np.percentile(sobel_h, 90)
-        edge_mask_v = sobel_v > np.percentile(sobel_v, 90)
+        _ = sobel_v > np.percentile(sobel_v, 90)
 
         # Near strong edges, check for oscillation (ringing)
         ringing_score = 0.0

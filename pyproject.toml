@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "artefex"
-version = "0.1.0"
+version = "1.0.0"
 description = "Neural forensic restoration - diagnose and reverse media degradation chains"
 readme = "README.md"
 license = "MIT"
@@ -81,6 +81,10 @@ packages = ["src/artefex"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+filterwarnings = [
+    "ignore:Specified provider 'CUDAExecutionProvider':UserWarning",
+]
 
 [tool.ruff]
 src = ["src"]
