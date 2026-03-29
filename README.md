@@ -1,5 +1,10 @@
 # artefex
 
+[![CI](https://github.com/turnert2005/artefex/actions/workflows/ci.yml/badge.svg)](https://github.com/turnert2005/artefex/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Version](https://img.shields.io/badge/version-0.1.0-purple.svg)](https://github.com/turnert2005/artefex/releases/tag/v0.1.0)
+
 **Neural forensic restoration - diagnose and reverse media degradation chains.**
 
 Every image on the internet has been through hell: screenshotted, re-compressed, platform-resized, color-shifted, watermarked, and re-shared dozens of times. Existing tools blindly upscale or denoise. Artefex is different - it first **diagnoses** what happened to your media, then **reverses each step specifically**.
@@ -48,7 +53,10 @@ artefex grade ./photos/ --export markdown     # batch export as markdown
 artefex report photo.jpg                      # text forensic report
 artefex report photo.jpg --html               # rich HTML report with charts
 artefex timeline photo.jpg                    # ASCII degradation timeline
+artefex story photo.jpg                       # natural language forensic narrative
 artefex heatmap photo.jpg                     # spatial degradation heatmap
+artefex palette photo.jpg                     # extract dominant color palette
+artefex orient photo.jpg --fix                # detect and fix orientation
 artefex audit photo.jpg                       # comprehensive audit (all tools)
 ```
 
@@ -66,6 +74,7 @@ artefex restore-preview photo.jpg             # save each step as separate file
 
 ```bash
 artefex compare original.jpg restored.jpg     # MSE, PSNR, SSIM, heatmap
+artefex gallery ./originals/ ./restored/      # HTML side-by-side gallery
 artefex duplicates ./photos/                  # find duplicate images
 artefex duplicates ./photos/ --threshold 0.8  # adjust similarity threshold
 ```
@@ -83,6 +92,8 @@ artefex video-restore clip.mp4                # restore frame by frame
 artefex web                                   # launch web UI with drag-and-drop
 artefex watch ./inbox/ --restore              # auto-process new images
 artefex dashboard ./photos/                   # generate HTML overview dashboard
+artefex rename-by-grade ./photos/ --dry-run   # preview grade-based renaming
+artefex parallel-analyze ./photos/            # multi-process batch analysis
 ```
 
 ### System
@@ -109,6 +120,8 @@ artefex plugins                               # list installed plugins
 | Provenance | Platform fingerprint | Dimension/compression/EXIF signatures for Twitter, Instagram, WhatsApp, Facebook, Telegram, Discord, Imgur |
 | Provenance | AI-generated content | Frequency spectrum, histogram smoothness, noise uniformity, patch consistency |
 | Security | Steganography | LSB analysis, chi-square test, entropy, pairs analysis |
+| Provenance | Camera/device ID | Sensor noise PRNU analysis (DSLR, smartphone, webcam, scanner) |
+| Forgery | Copy-move detection | Patch-based feature matching for cloned regions |
 
 ## Configuration
 
@@ -159,8 +172,9 @@ artefex analyze <image>
     |
     v
 +------------------------+
-| 11 Built-in Detectors  |  JPEG, noise, color, resolution, screenshot,
-| + Plugin Detectors     |  watermark, EXIF, platform, AI-gen, stego
+| 13 Built-in Detectors  |  JPEG, noise, color, resolution, screenshot,
+| + Plugin Detectors     |  watermark, EXIF, platform, AI-gen, stego,
+|                        |  camera ID, copy-move forgery
 +------------------------+
     |
     v

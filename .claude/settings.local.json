@@ -50,7 +50,9 @@
       "Bash(rm -f _t1.jpg _t2.jpg)",
       "Bash(python -m artefex palette _p.jpg --colors 5)",
       "Bash(python -m artefex orient _p.jpg)",
-      "Bash(rm -f _p.jpg)"
+      "Bash(rm -f _p.jpg)",
+      "Bash(python -m artefex story _s.jpg)",
+      "Bash(rm -f _s.jpg)"
     ]
   }
 }

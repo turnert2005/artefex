@@ -1550,6 +1550,118 @@ def accessibility_cmd(
 
 
 @app.command()
+def story(
+    path: Path = typer.Argument(..., help="Image file to narrate"),
+):
+    """Generate a natural language narrative of an image's degradation history."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.story import generate_story
+
+    analyzer = DegradationAnalyzer()
+    result = analyzer.analyze(path)
+    narrative = generate_story(path, result)
+
+    console.print(f"\n{narrative}\n")
+
+
+@app.command()
+def gallery(
+    original_dir: Path = typer.Argument(..., help="Directory with original images"),
+    restored_dir: Path = typer.Argument(..., help="Directory with restored images"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output HTML file"),
+):
+    """Generate an HTML comparison gallery of original vs restored images."""
+    if not original_dir.is_dir() or not restored_dir.is_dir():
+        console.print("[red]Error:[/red] Both arguments must be directories")
+        raise typer.Exit(1)
+
+    from artefex.gallery import generate_gallery
+
+    orig_files = sorted(_collect_images(original_dir))
+    rest_files = sorted(_collect_images(restored_dir))
+
+    # Match by stem name
+    pairs = []
+    rest_map = {f.stem.replace("_restored", ""): f for f in rest_files}
+
+    for orig in orig_files:
+        match = rest_map.get(orig.stem)
+        if match:
+            pairs.append((orig, match))
+
+    if not pairs:
+        console.print("[red]Error:[/red] No matching original/restored pairs found")
+        console.print("[dim]Tip: restored files should have the same name (or name_restored)[/dim]")
+        raise typer.Exit(1)
+
+    out_path = output or original_dir.parent / "artefex_gallery.html"
+    generate_gallery(pairs, out_path)
+
+    console.print(f"\n[green]Gallery with {len(pairs)} comparison(s) saved to:[/green] {out_path}\n")
+
+
+@app.command(name="rename-by-grade")
+def rename_by_grade(
+    path: Path = typer.Argument(..., help="Directory of images to rename"),
+    prefix: bool = typer.Option(True, "--prefix/--suffix", help="Add grade as prefix or suffix"),
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be renamed without doing it"),
+):
+    """Rename images with their quality grade prefix (e.g., A_photo.jpg)."""
+    if not path.is_dir():
+        console.print(f"[red]Error:[/red] Directory not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.grade import compute_grade
+
+    files = _collect_images(path)
+    if not files:
+        console.print(f"[red]Error:[/red] No images found")
+        raise typer.Exit(1)
+
+    analyzer = DegradationAnalyzer()
+    renames = []
+
+    for file in files:
+        result = analyzer.analyze(file)
+        g = compute_grade(result)
+        grade = g["grade"]
+
+        if prefix:
+            new_name = f"{grade}_{file.name}"
+        else:
+            new_name = f"{file.stem}_{grade}{file.suffix}"
+
+        new_path = file.parent / new_name
+        renames.append((file, new_path, grade))
+
+    table = Table(title="Rename Preview" if dry_run else "Renamed")
+    table.add_column("Grade", justify="center")
+    table.add_column("Original")
+    table.add_column("New Name")
+
+    for old, new, grade in renames:
+        color = {"A": "green", "B": "green", "C": "yellow", "D": "red", "F": "red"}.get(grade, "white")
+        table.add_row(f"[{color}]{grade}[/{color}]", old.name, new.name)
+
+    console.print(table)
+
+    if dry_run:
+        console.print(f"\n[dim]Dry run - no files renamed. Remove --dry-run to apply.[/dim]\n")
+        return
+
+    renamed = 0
+    for old, new, _ in renames:
+        if old != new and not new.exists():
+            old.rename(new)
+            renamed += 1
+
+    console.print(f"\n[green]{renamed} file(s) renamed[/green]\n")
+
+
+@app.command()
 def palette(
     path: Path = typer.Argument(..., help="Image file to extract palette from"),
     colors: int = typer.Option(8, "--colors", "-n", help="Number of colors to extract"),
