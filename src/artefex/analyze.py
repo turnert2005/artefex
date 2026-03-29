@@ -67,6 +67,16 @@ class DegradationAnalyzer:
         except Exception:
             pass
 
+        # Run copy-move forgery detection
+        try:
+            from artefex.detect_forgery import CopyMoveDetector
+            forgery_det = CopyMoveDetector()
+            forgery_deg = forgery_det.detect(img, arr)
+            if forgery_deg:
+                result.degradations.append(forgery_deg)
+        except Exception:
+            pass
+
         # Run platform fingerprinting
         try:
             from artefex.fingerprint import detect_platform

@@ -80,5 +80,6 @@ def _recommend_action(degradation_name: str) -> str:
         "AI-Generated Content": "Image shows signs of AI generation (informational)",
         "Steganography Detected": "Image may contain hidden embedded data (informational)",
         "Device Identification": "Device type identified from sensor noise (informational)",
+        "Copy-Move Forgery": "Cloned regions detected - image may have been manipulated",
     }
     return actions.get(degradation_name, f"Address {degradation_name}")

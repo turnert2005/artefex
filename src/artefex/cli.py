@@ -1550,6 +1550,155 @@ def accessibility_cmd(
 
 
 @app.command()
+def palette(
+    path: Path = typer.Argument(..., help="Image file to extract palette from"),
+    colors: int = typer.Option(8, "--colors", "-n", help="Number of colors to extract"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Extract dominant color palette from an image."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.palette import extract_palette, render_palette_ascii
+    from PIL import Image as PILImage
+
+    img = PILImage.open(path).convert("RGB")
+    pal = extract_palette(img, n_colors=colors)
+
+    if json:
+        print(json_mod.dumps(pal, indent=2))
+        return
+
+    console.print(f"\n[bold]Color Palette:[/bold] {path.name} ({colors} colors)\n")
+
+    table = Table()
+    table.add_column("Color", style="bold")
+    table.add_column("Hex")
+    table.add_column("RGB")
+    table.add_column("Share", justify="right")
+    table.add_column("", width=20)
+
+    for c in pal:
+        bar_len = max(1, int(c["percentage"] / 3))
+        bar = "#" * bar_len
+        r, g, b = c["rgb"]
+        table.add_row(
+            f"[on rgb({r},{g},{b})]    [/]",
+            c["hex"],
+            f"({r}, {g}, {b})",
+            f"{c['percentage']}%",
+            f"[rgb({r},{g},{b})]{bar}[/]",
+        )
+
+    console.print(table)
+    console.print()
+
+
+@app.command()
+def orient(
+    path: Path = typer.Argument(..., help="Image file to check/fix orientation"),
+    fix: bool = typer.Option(False, "--fix", "-f", help="Auto-correct orientation"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output path for corrected image"),
+):
+    """Detect and correct image orientation issues."""
+    if not path.exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    from artefex.orientation import detect_orientation, auto_orient
+    from PIL import Image as PILImage
+
+    img = PILImage.open(path)
+    info = detect_orientation(img)
+
+    console.print(f"\n[bold]Orientation:[/bold] {path.name}\n")
+
+    table = Table()
+    table.add_column("Property", style="bold")
+    table.add_column("Value")
+
+    table.add_row("EXIF orientation", info["exif_description"])
+    table.add_row("Needs correction", "[yellow]Yes[/yellow]" if info["needs_correction"] else "[green]No[/green]")
+    table.add_row("Horizon tilt", f"{info['horizon_tilt']}deg")
+    if info["suggested_rotation"]:
+        table.add_row("Suggested rotation", f"{info['suggested_rotation']}deg")
+
+    console.print(table)
+
+    if fix and info["needs_correction"]:
+        corrected, fix_info = auto_orient(img)
+        out_path = output or path.with_stem(f"{path.stem}_oriented")
+        corrected.save(out_path)
+        console.print(f"\n  [green]Corrected:[/green] {fix_info['applied']}")
+        console.print(f"  [green]Saved to:[/green] {out_path}")
+
+    console.print()
+
+
+@app.command(name="parallel-analyze")
+def parallel_analyze_cmd(
+    path: Path = typer.Argument(..., help="Directory of images to analyze in parallel"),
+    workers: Optional[int] = typer.Option(None, "--workers", "-w", help="Number of worker processes"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+):
+    """Analyze a directory of images using parallel processing."""
+    if not path.exists() or not path.is_dir():
+        console.print(f"[red]Error:[/red] Directory not found: {path}")
+        raise typer.Exit(1)
+
+    files = _collect_images(path)
+    if not files:
+        console.print(f"[red]Error:[/red] No images found in: {path}")
+        raise typer.Exit(1)
+
+    from artefex.parallel import parallel_analyze
+
+    console.print(f"\n[bold]Parallel analysis:[/bold] {len(files)} images, {workers or 'auto'} workers\n")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Analyzing...", total=len(files))
+
+        def on_progress(completed, total):
+            progress.update(task, completed=completed, total=total)
+
+        results = parallel_analyze(files, max_workers=workers, on_progress=on_progress)
+
+    if json:
+        print(json_mod.dumps(results, indent=2))
+        return
+
+    table = Table(title="Parallel Analysis Results")
+    table.add_column("File", style="bold")
+    table.add_column("Grade", justify="center")
+    table.add_column("Score", justify="right")
+    table.add_column("Issues", justify="center")
+    table.add_column("Top Issue")
+
+    for r in results:
+        if "error" in r:
+            table.add_row(r["file"], "[red]ERR[/red]", "-", "-", r["error"][:40])
+        else:
+            color = {"A": "green", "B": "green", "C": "yellow", "D": "red", "F": "red"}.get(r["grade"], "white")
+            table.add_row(
+                r["file"],
+                f"[{color}]{r['grade']}[/{color}]",
+                str(r["score"]),
+                str(r["degradation_count"]),
+                r["top_issue"] or "Clean",
+            )
+
+    console.print(table)
+    console.print()
+
+
+@app.command()
 def benchmark(
     path: Optional[Path] = typer.Argument(None, help="Image file to benchmark (or uses built-in test)"),
     iterations: int = typer.Option(5, "--iterations", "-n", help="Number of iterations"),

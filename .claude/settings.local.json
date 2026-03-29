@@ -47,7 +47,10 @@
       "Bash(python -m artefex health .)",
       "Bash(python -m artefex gate _t2.jpg --min-grade F)",
       "Bash(python -m artefex gate _t1.jpg --min-grade B)",
-      "Bash(rm -f _t1.jpg _t2.jpg)"
+      "Bash(rm -f _t1.jpg _t2.jpg)",
+      "Bash(python -m artefex palette _p.jpg --colors 5)",
+      "Bash(python -m artefex orient _p.jpg)",
+      "Bash(rm -f _p.jpg)"
     ]
   }
 }
