@@ -1,30 +1,73 @@
+<div align="center">
+
 # artefex
+
+**Neural forensic restoration - diagnose and reverse media degradation chains.**
 
 [![CI](https://github.com/turnert2005/artefex/actions/workflows/ci.yml/badge.svg)](https://github.com/turnert2005/artefex/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Version](https://img.shields.io/badge/version-0.1.0-purple.svg)](https://github.com/turnert2005/artefex/releases/tag/v0.1.0)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**Neural forensic restoration - diagnose and reverse media degradation chains.**
+[Getting Started](#install) | [Commands](#commands) | [Contributing](CONTRIBUTING.md) | [Discussions](https://github.com/turnert2005/artefex/discussions)
+
+</div>
+
+---
 
 Every image on the internet has been through hell: screenshotted, re-compressed, platform-resized, color-shifted, watermarked, and re-shared dozens of times. Existing tools blindly upscale or denoise. Artefex is different - it first **diagnoses** what happened to your media, then **reverses each step specifically**.
 
 Think of it as `git log` for media degradation, followed by intelligent undo.
 
+## Why Artefex?
+
+| | Other tools | Artefex |
+|---|---|---|
+| **Approach** | Blindly upscale/denoise everything | Diagnose first, then reverse each degradation step |
+| **Analysis** | None | 13 forensic detectors - JPEG artifacts, platform fingerprinting, AI detection, steganography, forgery |
+| **Restoration** | One-size-fits-all filter | Targeted fix per degradation - neural (ONNX) with classical fallback |
+| **Extensibility** | Closed | Plugin system for custom detectors and restorers |
+| **Interface** | Usually GUI-only | CLI + Python API + Web UI + Docker |
+
 ## Install
 
 ```bash
-pip install -e .              # core (images only)
-pip install -e ".[web]"       # adds web UI
-pip install -e ".[video]"     # adds video support
-pip install -e ".[neural]"    # adds ONNX neural models
-pip install -e ".[all]"       # everything
+pip install artefex               # core (images only)
+pip install artefex[web]          # adds web UI
+pip install artefex[video]        # adds video support
+pip install artefex[neural]       # adds ONNX neural models
+pip install artefex[all]          # everything
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/turnert2005/artefex.git
+cd artefex
+pip install -e ".[all]"
 ```
 
 Or with Docker:
 
 ```bash
 docker compose up             # web UI at http://localhost:8787
+```
+
+## Quick start
+
+```bash
+# Diagnose what happened to an image
+artefex analyze photo.jpg
+
+# Get a quality grade (A-F)
+artefex grade photo.jpg
+
+# Reverse the degradation chain
+artefex restore photo.jpg
+
+# Full forensic audit
+artefex audit photo.jpg
 ```
 
 ## Commands
@@ -123,6 +166,24 @@ artefex plugins                               # list installed plugins
 | Provenance | Camera/device ID | Sensor noise PRNU analysis (DSLR, smartphone, webcam, scanner) |
 | Forgery | Copy-move detection | Patch-based feature matching for cloned regions |
 
+## Python API
+
+```python
+from artefex import analyze, restore, grade
+
+# Diagnose
+result = analyze("photo.jpg")
+for d in result.degradations:
+    print(f"{d.name}: {d.confidence:.0%} confidence, severity {d.severity:.0%}")
+
+# Grade
+grade_result = grade("photo.jpg")
+print(f"Grade: {grade_result}")
+
+# Restore
+restore("photo.jpg", output="photo_restored.png")
+```
+
 ## Configuration
 
 Create `.artefex.toml` in your project or `~/.artefex.toml` globally:
@@ -199,6 +260,14 @@ artefex analyze <image>
 - [ ] **v0.4** - Pre-trained model weights + model hub
 - [ ] **v0.5** - Temporal coherence for video + audio support
 - [ ] **v1.0** - Stable API + community model zoo
+
+## Contributing
+
+We welcome contributions of all sizes - from typo fixes to new detectors. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
+
+**New here?** Look for issues labeled [`good first issue`](https://github.com/turnert2005/artefex/labels/good%20first%20issue) - these are scoped tasks designed for first-time contributors.
+
+**Have questions?** Join the [Discussions](https://github.com/turnert2005/artefex/discussions).
 
 ## License
 

@@ -1,0 +1,21 @@
+title: "Show and Tell"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share what you've built with Artefex - restorations, plugins, integrations, scripts, or creative uses.
+  - type: textarea
+    id: showcase
+    attributes:
+      label: What did you build?
+      description: Describe what you made and how Artefex was involved.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Links, screenshots, before/after comparisons, code snippets, etc.
+    validations:
+      required: false

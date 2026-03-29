@@ -1,0 +1,40 @@
+site_name: Artefex
+site_description: Neural forensic restoration - diagnose and reverse media degradation chains
+site_url: https://turnert2005.github.io/artefex/
+repo_url: https://github.com/turnert2005/artefex
+repo_name: turnert2005/artefex
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep purple
+    accent: amber
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - CLI Reference: cli-reference.md
+  - Python API: api.md
+  - Detectors: detectors.md
+  - Architecture: architecture.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search

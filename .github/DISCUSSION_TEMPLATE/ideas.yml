@@ -1,0 +1,21 @@
+title: "Ideas"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share an idea for Artefex - new detectors, restorers, integrations, workflows, or anything else.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What's the idea?
+      description: Describe what you'd like to see in Artefex.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Why would this be useful?
+      description: What problem does this solve or what workflow does it improve?
+    validations:
+      required: false

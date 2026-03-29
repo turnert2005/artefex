@@ -1,0 +1,21 @@
+title: "Q&A"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask a question about using Artefex, building plugins, training models, or anything else.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you want to know?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any relevant details - what you've tried, your setup, etc.
+    validations:
+      required: false
