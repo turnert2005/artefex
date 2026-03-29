@@ -97,6 +97,15 @@ def build_pyinstaller_args(models):
         "--collect-submodules", "artefex",
         "--collect-submodules", "uvicorn",
         "--collect-submodules", "fastapi",
+        # Exclude PyTorch - only needed for model training/conversion,
+        # not for inference. Users run models via onnxruntime only.
+        "--exclude-module", "torch",
+        "--exclude-module", "torchvision",
+        "--exclude-module", "torchaudio",
+        "--exclude-module", "onnxscript",
+        "--exclude-module", "sympy",
+        "--exclude-module", "pytest",
+        "--exclude-module", "setuptools",
     ]
 
     # Add ONNX models as data files
