@@ -1,8 +1,8 @@
 """First-launch model downloader.
 
-Checks for missing neural models on startup and downloads them
-from their source repositories. Downloads .pth files and converts
-to ONNX, or downloads pre-converted ONNX files from GitHub Releases.
+Downloads pre-converted ONNX models from GitHub Releases on first
+launch. All models are served directly as ONNX files - no PyTorch
+or conversion needed on the user's machine.
 
 Usage:
     from artefex.model_downloader import ensure_models
@@ -12,7 +12,6 @@ Usage:
 import hashlib
 import logging
 import shutil
-import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -21,32 +20,33 @@ from artefex.models_registry import MODEL_DIR, REGISTRY, ModelRegistry
 
 logger = logging.getLogger(__name__)
 
-# Download sources for each model.
-# Priority: GitHub Release ONNX > HuggingFace > original .pth + convert
+# GitHub Release base URL for pre-converted ONNX models
+_RELEASE_BASE = (
+    "https://github.com/turnert2005/artefex"
+    "/releases/download/v1.0.0"
+)
+
+# Download sources - all models served as ONNX from GitHub Releases
 DOWNLOAD_SOURCES = {
+    "deblock-v1": {
+        "url": f"{_RELEASE_BASE}/deblock_v1.onnx",
+        "type": "url",
+    },
     "denoise-v1": {
-        "url": "https://github.com/cszn/KAIR/releases/download/v1.0/dncnn_color_blind.pth",
-        "type": "pth",
-        "convert": "dncnn_color_blind",
+        "url": f"{_RELEASE_BASE}/denoise_v1.onnx",
+        "type": "url",
     },
     "sharpen-v1": {
-        "url": None,  # NAFNet requires gdown (Google Drive)
-        "type": "skip",
-    },
-    "deblock-v1": {
-        "url": None,  # FBCNN is 288MB .pth, needs conversion
-        "type": "skip",
+        "url": f"{_RELEASE_BASE}/sharpen_v1.onnx",
+        "type": "url",
     },
     "aigen-detect-v1": {
-        "url": "https://raw.githubusercontent.com/Ouxiang-Li/SAFE/main/checkpoint/checkpoint-best.pth",
-        "type": "pth",
-        "convert": "safe",
+        "url": f"{_RELEASE_BASE}/aigen_detect_v1.onnx",
+        "type": "url",
     },
     "inpaint-v1": {
-        "url": None,  # Downloaded via huggingface_hub
-        "type": "huggingface",
-        "repo": "opencv/inpainting_lama",
-        "file": "inpainting_lama_2025jan.onnx",
+        "url": f"{_RELEASE_BASE}/inpaint_v1.onnx",
+        "type": "url",
     },
 }
 
@@ -114,31 +114,6 @@ def download_file(
         return False
 
 
-def download_from_huggingface(
-    repo: str,
-    filename: str,
-    dest: Path,
-    on_progress: Optional[callable] = None,
-) -> bool:
-    """Download a model from HuggingFace Hub."""
-    try:
-        from huggingface_hub import hf_hub_download
-
-        path = hf_hub_download(repo, filename)
-        shutil.copy2(path, dest)
-        if on_progress:
-            size = dest.stat().st_size
-            on_progress(size, size, dest.name)
-        return True
-    except Exception as e:
-        logger.warning(f"HuggingFace download failed: {e}")
-        # Fallback to direct URL
-        url = (
-            f"https://huggingface.co/{repo}/resolve/main/{filename}"
-        )
-        return download_file(url, dest, on_progress)
-
-
 def ensure_models(
     on_progress: Optional[callable] = None,
     on_status: Optional[callable] = None,
@@ -180,59 +155,11 @@ def ensure_models(
                 f"({info['size_mb']:.0f} MB)..."
             )
 
-        success = False
-        src_type = source.get("type", "skip")
-
-        if src_type == "skip":
-            # Model requires special handling (gdown, conversion)
-            # Try the conversion script if .pth exists locally
-            pth_dir = (
-                Path(__file__).parent.parent.parent
-                / "train" / "pretrained"
-            )
-            if pth_dir.exists():
-                if on_status:
-                    on_status(
-                        f"Checking local pre-trained weights "
-                        f"for {key}..."
-                    )
+        url = source.get("url")
+        if not url:
             continue
 
-        elif src_type == "pth":
-            url = source.get("url")
-            if url:
-                # Download .pth, then we'd need to convert
-                # For now, just note it needs conversion
-                pth_tmp = Path(
-                    tempfile.mktemp(suffix=".pth")
-                )
-                success = download_file(
-                    url, pth_tmp, on_progress
-                )
-                if success:
-                    if on_status:
-                        on_status(
-                            f"Converting {key} to ONNX..."
-                        )
-                    # The conversion would happen here
-                    # For now, clean up
-                    pth_tmp.unlink(missing_ok=True)
-                    success = False  # Can't convert without torch
-
-        elif src_type == "huggingface":
-            repo = source.get("repo", "")
-            filename = source.get("file", "")
-            if repo and filename:
-                success = download_from_huggingface(
-                    repo, filename, dest, on_progress
-                )
-
-        elif src_type == "url":
-            url = source.get("url")
-            if url:
-                success = download_file(
-                    url, dest, on_progress
-                )
+        success = download_file(url, dest, on_progress)
 
         if success:
             # Verify SHA-256 if we have one
