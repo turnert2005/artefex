@@ -59,9 +59,46 @@ Working forensic image analysis tool with:
 | SAFE | Ouxiang-Li/SAFE | Apache 2.0 | 5.5 MB | 98.9% AI detection |
 | LaMa | opencv/inpainting_lama | Apache 2.0 | 88 MB | Inpainting (disabled) |
 
-## Future Roadmap
+## Completed
 
-- v1.1: Safe inpainting with face protection
-- v1.2: Interactive web UI with WebSocket progress
-- v1.3: Expanded model zoo (super-resolution, dehazing)
-- v1.4: Multi-class AI detection (real/generated/modified/upscaled)
+- [x] Priority 1: First-launch model downloader (GitHub Release URLs wired)
+- [x] Priority 2: Progress indicators (animated step-by-step)
+- [x] Priority 3: Safe inpainting (face protection, calibrated damage detection)
+- [x] Models uploaded to GitHub Release v1.0.0
+- [x] Windows package rebuilt with all models (880 MB)
+- [x] Published to PyPI
+
+## Next Session - Bigger Items
+
+### 1. Improved Inpainting Masks
+- Current damage detector has false positives on gradient images
+- Need a trained damage segmentation model (U-Net trained on damaged photo datasets)
+- Or allow user to paint damage mask manually in the web UI
+- Canvas-based mask painting with brush size control
+
+### 2. WebSocket Real-Time Progress
+- Replace simulated step animations with actual backend progress
+- SSE or WebSocket endpoint that streams detector results as they complete
+- Show actual time elapsed and estimated time remaining
+
+### 3. Multi-Class AI Detection
+- Current SAFE model is binary (real/synthetic)
+- Need to distinguish: fully AI-generated vs AI-modified (inpainted/outpainted)
+- FerretNet (4 MB, Apache 2.0) as a second opinion detector
+- Display generator type if identifiable (SD, Midjourney, DALL-E)
+
+### 4. Windows Installer with Inno Setup
+- Build proper .exe installer (not just zip)
+- Requires Inno Setup 6 installed on the build machine
+- Creates Start Menu shortcut, desktop icon, uninstaller
+- Config exists at installer/artefex_setup.iss
+
+### 5. Model Auto-Update
+- Check for newer model versions on startup
+- Version field in registry enables comparison
+- Notify user when better models are available
+
+### 6. Batch Processing in Web UI
+- Drag multiple images at once
+- Process queue with progress per image
+- Export batch report as PDF or CSV
