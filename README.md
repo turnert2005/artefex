@@ -27,7 +27,7 @@ Think of it as `git log` for media degradation, followed by intelligent undo.
 | **Approach** | Blindly upscale/denoise everything | Diagnose first, then reverse each degradation step |
 | **Analysis** | None | 13 forensic detectors - JPEG artifacts, platform fingerprinting, AI detection, steganography, forgery |
 | **AI Detection** | None | SAFE neural classifier - 98.9% accuracy on modern generators (GPT-4o, FLUX, SD-3, Midjourney) |
-| **Restoration** | One-size-fits-all filter | Neural denoising (+13-21 dB), neural deblurring (+0.6-1.2 dB), classical JPEG/color correction |
+| **Restoration** | One-size-fits-all filter | FBCNN JPEG cleaning (+3-4 dB), neural denoising (+13-21 dB), neural deblurring (+0.6-1.2 dB), LaMa inpainting with face protection |
 | **Extensibility** | Closed | Plugin system for custom detectors and restorers |
 | **Interface** | Usually GUI-only | CLI + Python API + Web UI + Docker |
 
@@ -57,30 +57,22 @@ docker compose up             # web UI at http://localhost:8787
 
 ## Neural Models
 
-Artefex ships with pre-trained neural models for enhanced restoration and AI detection. After installing, download the models:
+Artefex uses pre-trained neural models for forensic analysis and restoration. Install the models after setup:
 
 ```bash
-# Download and install all neural models (~76 MB total)
 python train/convert_pretrained.py --install
-```
-
-Or download individually from the [releases page](https://github.com/turnert2005/artefex/releases) and import:
-
-```bash
-artefex models import denoise-v1 denoise_v1.onnx
-artefex models import sharpen-v1 sharpen_v1.onnx
-artefex models import aigen-detect-v1 aigen_detect_v1.onnx
 artefex models list                              # verify installation
 ```
 
 | Model | Task | Size | Performance | License |
 |-------|------|------|-------------|---------|
-| DnCNN color blind | Noise removal | 2.6 MB | +13-21 dB PSNR improvement | MIT (KAIR) |
-| NAFNet GoPro-w32 | Blur/detail recovery | 65.7 MB | +0.6-1.2 dB on moderate blur | MIT (megvii) |
+| FBCNN | JPEG artifact removal | 274 MB | +2.7 to +4.3 dB PSNR improvement | Apache 2.0 |
+| DnCNN color blind | Noise removal | 2.6 MB | +13 to +21 dB PSNR improvement | MIT (KAIR) |
+| NAFNet GoPro-w32 | Blur/detail recovery | 65.7 MB | +0.6 to +1.2 dB on moderate blur | MIT (megvii) |
 | SAFE | AI image detection | 5.5 MB | 98.9% accuracy on modern generators | Apache 2.0 |
-| DnCNN-3 | JPEG deblocking | 2.5 MB | Marginal (classical used instead) | MIT (KAIR) |
+| LaMa | Physical damage repair | 88 MB | Inpainting with face protection | Apache 2.0 (OpenCV) |
 
-Artefex works without neural models - classical signal processing handles all restoration. Neural models enhance quality for noise and blur, and enable AI detection.
+Artefex works without neural models using classical signal processing. Neural models provide dramatically better results for JPEG artifacts, noise, blur, AI detection, and physical damage repair.
 
 ## Quick start
 
@@ -193,6 +185,9 @@ artefex plugins                               # list installed plugins
 | Security | Steganography | LSB analysis, chi-square test, entropy, pairs analysis |
 | Provenance | Camera/device ID | Sensor noise PRNU analysis (DSLR, smartphone, webcam, scanner) |
 | Forgery | Copy-move detection | Patch-based feature matching for cloned regions |
+| Physical | Damage detection | Bright flaking, scratch, tear, and stain detection with face-protected LaMa inpainting |
+
+**14 forensic detectors** run on every image, providing a complete degradation chain analysis.
 
 ## Python API
 
@@ -288,10 +283,10 @@ artefex analyze <image>
 - [x] **v0.4** - Test ONNX model generation, model download infrastructure, SHA-256 verification
 - [x] **v0.5** - Video temporal coherence, audio passthrough via ffmpeg, multi-codec output
 - [x] **v0.8** - 244 tests (unit + integration + edge cases + E2E), API stability with TypedDicts
-- [x] **v1.0** - Pre-trained neural models (DnCNN denoiser, NAFNet deblurring, SAFE AI detection), stable API **(current)**
-- [ ] **v1.1** - FBCNN for JPEG deblocking (288 MB, Apache 2.0 - replaces DnCNN-3 for dramatic JPEG improvement)
+- [x] **v1.0** - Pre-trained neural models (FBCNN +3-4 dB JPEG, DnCNN +13-21 dB noise, NAFNet deblurring, SAFE 98.9% AI detection, LaMa inpainting with face protection), 14 forensic detectors, guided web UI, Windows packaging **(current)**
+- [ ] **v1.1** - First-launch model auto-downloader, improved inpainting with user-adjustable masks
 - [ ] **v1.2** - Interactive web UI with WebSocket progress and batch management
-- [ ] **v1.3** - Expanded neural model zoo (super-resolution, inpainting, dehazing)
+- [ ] **v1.3** - Expanded model zoo (super-resolution, dehazing)
 - [ ] **v1.4** - Multi-class AI detection (real vs AI-generated vs AI-modified vs AI-upscaled)
 
 ## Contributing

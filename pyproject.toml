@@ -53,6 +53,7 @@ Discussions = "https://github.com/turnert2005/artefex/discussions"
 
 [project.optional-dependencies]
 neural = [
+    "onnx>=1.15.0",
     "onnxruntime>=1.16.0",
 ]
 web = [
