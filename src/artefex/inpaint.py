@@ -36,52 +36,28 @@ def detect_damage_mask(img: Image.Image, sensitivity: float = 0.5):
     mask = np.zeros((h, w), dtype=np.uint8)
 
     # 1. Detect very bright spots (white flaking/peeling)
-    # Old photos have damage that appears as bright white patches
+    # Only flag pixels that are very bright AND surrounded by
+    # much darker content. This avoids false positives from
+    # JPEG artifacts, highlights, or bright image regions.
     brightness = np.max(arr, axis=2)
-    bright_thresh = 240 - int(sensitivity * 20)
+    bright_thresh = 240 - int(sensitivity * 15)
     bright_mask = brightness > bright_thresh
 
-    # Check if bright spots are surrounded by darker content
-    # (to avoid marking legitimately bright image areas)
-    local_mean = _box_filter(gray, 15)
+    local_mean = _box_filter(gray, 25)
     contrast = brightness - local_mean
-    bright_damage = bright_mask & (contrast > 60 - int(sensitivity * 30))
+    # Require high contrast (bright spot in dark area)
+    bright_damage = bright_mask & (contrast > 70 - int(sensitivity * 20))
     mask[bright_damage] = 255
 
-    # 2. Detect scratches (thin bright or dark lines)
-    # Use gradient magnitude to find high-contrast linear features
-    grad_h = np.abs(np.diff(gray, axis=0, prepend=gray[:1, :]))
-    grad_v = np.abs(np.diff(gray, axis=1, prepend=gray[:, :1]))
-    grad_mag = np.sqrt(grad_h ** 2 + grad_v ** 2)
+    # 2. Remove small isolated noise spots (keep large patches)
+    # Erode with small kernel to remove 1-2 pixel noise spots
+    from PIL import ImageFilter
+    mask_pil = Image.fromarray(mask, mode="L")
+    eroded = mask_pil.filter(ImageFilter.MinFilter(3))
+    mask = np.array(eroded)
 
-    # Scratches have very high local gradient
-    grad_thresh = np.percentile(grad_mag, 98 - int(sensitivity * 5))
-    scratch_mask = grad_mag > grad_thresh
-
-    # Only count as damage if it's a thin feature (not an edge)
-    # Check by looking at gradient consistency in neighborhood
-    local_grad = _box_filter(grad_mag, 5)
-    thin_features = scratch_mask & (local_grad < grad_thresh * 0.6)
-    mask[thin_features] = 255
-
-    # 3. Detect unusual color patches (stains, discoloration spots)
-    # Look for regions where color deviates strongly from neighbors
-    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-    local_r = _box_filter(r, 21)
-    local_g = _box_filter(g, 21)
-    local_b = _box_filter(b, 21)
-    color_diff = np.sqrt(
-        (r - local_r) ** 2 + (g - local_g) ** 2 + (b - local_b) ** 2
-    )
-    stain_thresh = np.percentile(color_diff, 97 - int(sensitivity * 5))
-    stain_mask = color_diff > stain_thresh
-
-    # Only mark as damage if the deviation is extreme
-    if sensitivity > 0.3:
-        mask[stain_mask & (color_diff > stain_thresh * 1.5)] = 255
-
-    # 4. Dilate the mask to ensure coverage of damage boundaries
-    mask = _dilate(mask, radius=max(1, int(2 + sensitivity * 3)))
+    # 3. Dilate the remaining mask slightly
+    mask = _dilate(mask, radius=max(1, int(1 + sensitivity * 2)))
 
     # Calculate damage percentage
     damage_pct = np.sum(mask > 0) / (h * w)
@@ -110,18 +86,88 @@ def _dilate(mask, radius=2):
     return (flt > 0).astype(np.uint8) * 255
 
 
+def detect_faces(img: Image.Image) -> list[tuple[int, int, int, int]]:
+    """Detect faces using OpenCV Haar cascades.
+
+    Returns list of (x, y, w, h) bounding boxes with padding.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return []
+
+    arr = np.array(img.convert("RGB"))
+    gray = np.mean(arr, axis=2).astype(np.uint8)
+
+    cascade_path = str(
+        Path(cv2.data.haarcascades)
+        / "haarcascade_frontalface_default.xml"
+    )
+    cascade = cv2.CascadeClassifier(cascade_path)
+
+    faces = cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=3,
+        minSize=(30, 30),
+    )
+
+    if len(faces) == 0:
+        return []
+
+    h, w = arr.shape[:2]
+    padded = []
+    for (fx, fy, fw, fh) in faces:
+        # Add 30% padding around face to protect hair, ears, neck
+        pad_x = int(fw * 0.3)
+        pad_y = int(fh * 0.3)
+        x1 = max(0, fx - pad_x)
+        y1 = max(0, fy - pad_y)
+        x2 = min(w, fx + fw + pad_x)
+        y2 = min(h, fy + fh + pad_y)
+        padded.append((x1, y1, x2 - x1, y2 - y1))
+
+    return padded
+
+
+def create_face_protection_mask(
+    img: Image.Image,
+    damage_mask: Image.Image,
+) -> Image.Image:
+    """Remove face regions from the damage mask.
+
+    Detects faces and zeroes out those regions in the damage mask
+    so inpainting never touches facial features.
+    """
+    faces = detect_faces(img)
+    if not faces:
+        return damage_mask
+
+    mask_arr = np.array(damage_mask)
+
+    for (x, y, w, h) in faces:
+        mask_arr[y:y + h, x:x + w] = 0
+
+    return Image.fromarray(mask_arr, mode="L")
+
+
 def inpaint_image(
     img: Image.Image,
     mask: Image.Image,
     model_path: Optional[Path] = None,
+    protect_faces: bool = True,
 ) -> Image.Image:
     """Inpaint damaged regions using the LaMa neural model.
+
+    Uses face detection to protect facial regions from inpainting.
+    Blends the inpainted result with the original to preserve
+    undamaged areas perfectly.
 
     Args:
         img: Original image (RGB)
         mask: Binary damage mask (L mode, 255=damaged)
-        model_path: Path to inpaint_v1.onnx. If None, looks in
-            the default model directory.
+        model_path: Path to inpaint_v1.onnx
+        protect_faces: If True, detect faces and exclude them
 
     Returns:
         Inpainted image (RGB, same size as input)
@@ -131,11 +177,20 @@ def inpaint_image(
         model_path = MODEL_DIR / "inpaint_v1.onnx"
 
     if not model_path.exists():
-        return img  # No model available, return original
+        return img
 
     try:
         import onnxruntime as ort
     except ImportError:
+        return img
+
+    # Protect faces from inpainting
+    if protect_faces:
+        mask = create_face_protection_mask(img, mask)
+
+    # Check if there's still damage to repair after face exclusion
+    mask_arr = np.array(mask)
+    if np.sum(mask_arr > 0) < 100:  # Less than 100 damaged pixels
         return img
 
     session = ort.InferenceSession(
@@ -143,6 +198,7 @@ def inpaint_image(
     )
 
     orig_size = img.size  # (w, h)
+    orig_arr = np.array(img.convert("RGB"))
 
     # Resize to 512x512 for LaMa
     img_resized = img.convert("RGB").resize(
@@ -152,34 +208,57 @@ def inpaint_image(
         (512, 512), Image.NEAREST
     )
 
-    # Prepare image input: NCHW, float32, [0, 1]
+    # Prepare inputs
     img_arr = (
         np.array(img_resized, dtype=np.float32) / 255.0
     )
     img_blob = img_arr.transpose(2, 0, 1)[np.newaxis]
 
-    # Prepare mask input: NCHW, float32, binary
-    mask_arr = np.array(mask_resized, dtype=np.float32) / 255.0
-    mask_blob = mask_arr[np.newaxis, np.newaxis]
+    mask_arr_resized = (
+        np.array(mask_resized, dtype=np.float32) / 255.0
+    )
+    mask_blob = mask_arr_resized[np.newaxis, np.newaxis]
     mask_blob = (mask_blob > 0.5).astype(np.float32)
 
-    # Run inference
+    # Run LaMa inference
     inputs = session.get_inputs()
-    input_dict = {
+    output = session.run(None, {
         inputs[0].name: img_blob,
         inputs[1].name: mask_blob,
-    }
-    output = session.run(None, input_dict)[0]
+    })[0]
 
-    # Post-process: output is NCHW, [0, 255] uint8 range
     result = output[0].transpose(1, 2, 0)
     result = np.clip(result, 0, 255).astype(np.uint8)
     result_img = Image.fromarray(result)
 
     # Resize back to original dimensions
     result_img = result_img.resize(orig_size, Image.LANCZOS)
+    result_arr = np.array(result_img)
 
-    return result_img
+    # Blend: only use inpainted pixels where the mask says damage.
+    # Keep original pixels everywhere else for perfect preservation.
+    mask_full = np.array(
+        mask.convert("L").resize(orig_size, Image.NEAREST)
+    )
+    blend = mask_full.astype(np.float32) / 255.0
+    blend = blend[:, :, np.newaxis]  # (H, W, 1)
+
+    # Smooth the blend boundary to avoid sharp edges
+    blend_pil = Image.fromarray(
+        (blend[:, :, 0] * 255).astype(np.uint8), mode="L"
+    )
+    from PIL import ImageFilter
+    blend_pil = blend_pil.filter(ImageFilter.GaussianBlur(3))
+    blend = np.array(blend_pil, dtype=np.float32) / 255.0
+    blend = blend[:, :, np.newaxis]
+
+    final = (
+        orig_arr.astype(np.float32) * (1.0 - blend)
+        + result_arr.astype(np.float32) * blend
+    )
+    final = np.clip(final, 0, 255).astype(np.uint8)
+
+    return Image.fromarray(final)
 
 
 def detect_physical_damage(
@@ -199,11 +278,11 @@ def detect_physical_damage(
 
     mask, damage_pct = detect_damage_mask(img, sensitivity=0.5)
 
-    if damage_pct < 0.005:  # Less than 0.5% damage
+    if damage_pct < 0.15:  # Less than 15% - likely false positives
         return None
 
-    severity = min(1.0, damage_pct * 5)  # 20% damage = severity 1.0
-    confidence = min(1.0, damage_pct * 10 + 0.3)
+    severity = min(1.0, damage_pct * 3)  # 33% damage = severity 1.0
+    confidence = min(1.0, damage_pct * 5 + 0.2)
 
     detail = (
         f"Physical damage detected covering {damage_pct:.1%} of "

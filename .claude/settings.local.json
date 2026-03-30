@@ -156,7 +156,14 @@
       "Bash(python -m pytest tests/test_comprehensive.py::TestQualityGate::test_clean_image_passes -v --tb=short)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "Bash(python -c \"import json; json.load\\(open\\(''c:/Users/scott/Documents/GitHub/artefex/.claude/settings.local.json''\\)\\); print\\(''JSON valid''\\)\")"
+      "Bash(python -c \"import json; json.load\\(open\\(''c:/Users/scott/Documents/GitHub/artefex/.claude/settings.local.json''\\)\\); print\\(''JSON valid''\\)\")",
+      "Bash(python -m pytest tests/test_restore.py::test_restore_produces_output -v --tb=long)",
+      "Bash(python -m pytest tests/test_restore.py::test_restore_produces_output -v --tb=short)",
+      "Bash(python -m pytest tests/test_model_validation.py::TestFullPipelineWithTrainedModels -v --tb=short)",
+      "Bash(python -m pytest tests/test_model_validation.py::TestFullPipelineWithTrainedModels::test_pipeline_does_no_harm_on_mildly_degraded_image --tb=line)",
+      "Bash(rm _test5.txt)",
+      "Bash(rm _d6.txt)",
+      "Bash(python -m ruff check src/)"
     ]
   },
   "hooks": {

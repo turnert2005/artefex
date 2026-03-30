@@ -99,10 +99,28 @@ class RestorationPipeline:
             ):
                 continue
 
-            # Physical damage detection is informational only.
-            # Inpainting is available but requires user-provided
-            # or manually verified masks to avoid face distortion.
+            # Physical damage - inpaint with face protection
             if degradation.name == "Physical Damage":
+                if not self._use_neural:
+                    continue
+                try:
+                    from artefex.inpaint import (
+                        detect_damage_mask,
+                        inpaint_image,
+                    )
+                    mask, pct = detect_damage_mask(img)
+                    if pct > 0.10:  # At least 10% real damage
+                        img = inpaint_image(
+                            img, mask, protect_faces=True
+                        )
+                        steps.append(
+                            f"[neural] Physical Damage -> "
+                            f"inpaint ({pct:.1%} repaired, "
+                            f"faces protected)"
+                        )
+                        used_neural = True
+                except Exception:
+                    pass
                 continue
 
             # Try neural model for degradations where it measurably
@@ -111,7 +129,7 @@ class RestorationPipeline:
             neural_min_severity = {
                 "compression": 0.15,  # FBCNN: +2.7-4.3 dB across all QF levels
                 "noise": 0.3,         # DnCNN denoise: +10-20 dB
-                "resolution": 0.5,    # NAFNet: +0.6-1.2 dB on moderate blur
+                "resolution": 0.7,    # NAFNet: only on heavy blur
             }
             min_sev = neural_min_severity.get(
                 degradation.category, 0.7
@@ -281,7 +299,10 @@ class RestorationPipeline:
 
     def _fix_resolution(self, img: Image.Image, degradation: Degradation) -> Image.Image:
         """Sharpen to partially recover lost high-frequency detail."""
-        strength = 0.3 + degradation.severity * 0.7
+        # Only sharpen when resolution loss is significant
+        if degradation.severity < 0.7:
+            return img
+        strength = 0.2 + degradation.severity * 0.5
         radius = 2
         return img.filter(
             ImageFilter.UnsharpMask(
