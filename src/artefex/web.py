@@ -642,13 +642,38 @@ async function handleFile(file) {
   document.getElementById('reportBox').textContent = '';
   document.getElementById('sliderContainer').className = 'slider-container';
 
-  // Analyze
-  setStatus('<span class="spinner"></span> Analyzing image...');
+  // Analyze with animated progress steps
+  const steps = [
+    'Checking JPEG compression artifacts...',
+    'Scanning for resolution loss...',
+    'Analyzing color channels...',
+    'Detecting noise patterns...',
+    'Checking for physical damage...',
+    'Running AI detection model...',
+    'Scanning for steganography...',
+    'Identifying camera/device...',
+    'Detecting copy-move forgery...',
+    'Fingerprinting platform history...',
+    'Computing quality grade...',
+  ];
+  let stepIdx = 0;
+  const progressInterval = setInterval(() => {
+    if (stepIdx < steps.length) {
+      setStatus(
+        '<span class="spinner"></span> ' +
+        steps[stepIdx] +
+        ' (' + (stepIdx + 1) + '/' + steps.length + ')'
+      );
+      stepIdx++;
+    }
+  }, 400);
+
   const form = new FormData();
   form.append('file', file);
 
   try {
     const res = await fetch('/api/analyze', { method: 'POST', body: form });
+    clearInterval(progressInterval);
     if (!res.ok) {
       const text = await res.text();
       try {
@@ -767,6 +792,7 @@ async function handleFile(file) {
     document.getElementById('actions').className = 'actions visible';
     clearStatus();
   } catch (err) {
+    clearInterval(progressInterval);
     setStatus('Error analyzing image: ' + err.message, 'info');
   }
 }
@@ -777,13 +803,33 @@ async function restoreImage() {
   btn.disabled = true;
 
   showView('view-restore');
-  setStatus('<span class="spinner"></span> Restoring image...');
+
+  const cleanSteps = [
+    'Analyzing degradation chain...',
+    'Applying JPEG artifact removal (FBCNN)...',
+    'Running neural denoising (DnCNN)...',
+    'Recovering detail (NAFNet)...',
+    'Correcting color balance...',
+    'Finalizing cleaned image...',
+  ];
+  let cleanIdx = 0;
+  const cleanInterval = setInterval(() => {
+    if (cleanIdx < cleanSteps.length) {
+      setStatus(
+        '<span class="spinner"></span> ' +
+        cleanSteps[cleanIdx] +
+        ' (' + (cleanIdx + 1) + '/' + cleanSteps.length + ')'
+      );
+      cleanIdx++;
+    }
+  }, 800);
 
   const form = new FormData();
   form.append('file', currentFile);
 
   try {
     const res = await fetch('/api/restore', { method: 'POST', body: form });
+    clearInterval(cleanInterval);
     restoredBlob = await res.blob();
     const url = URL.createObjectURL(restoredBlob);
     const stepCount = parseInt(res.headers.get('X-Restore-Steps') || '0');
@@ -810,6 +856,7 @@ async function restoreImage() {
       );
     }
   } catch (err) {
+    clearInterval(cleanInterval);
     setStatus('Error restoring: ' + err.message, 'info');
   }
   btn.disabled = false;
