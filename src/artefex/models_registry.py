@@ -387,6 +387,9 @@ class ModelRegistry:
             model = helper.make_model(
                 graph, opset_imports=[helper.make_opsetid("", 13)]
             )
+            # Keep generated test models compatible with older onnxruntime
+            # versions used on CI runners.
+            model.ir_version = 11
             onnx.checker.check_model(model)
 
             dest = self.model_dir / info["filename"]
