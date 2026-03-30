@@ -101,14 +101,14 @@ class TestNeuralPipelineEdgeCases:
         assert result.size == img.size
 
     def test_neural_grayscale_through_deblock(self, test_models):
-        """Grayscale images should work through the 1-channel deblock model."""
+        """Grayscale images through FBCNN (3ch) get converted to RGB."""
         img = _make_gradient(64, 64, mode="L")
         engine = NeuralEngine(registry=test_models)
         result = engine.run("deblock-v1", img)
 
         assert isinstance(result, Image.Image)
-        # Grayscale input returns grayscale output
-        assert result.mode == "L"
+        # FBCNN is 3-channel, so grayscale input becomes RGB output
+        assert result.mode == "RGB"
         assert result.size == img.size
 
     def test_neural_grayscale_rgb_roundtrip(self, test_models):

@@ -139,7 +139,21 @@
       "Bash(python train/convert_pretrained.py --install)",
       "Bash(python -c \"from artefex.web import app; print\\(''Import OK''\\)\")",
       "Bash(python -m ruff check src/artefex/web.py launcher.py build_windows.py)",
-      "Bash(python -m ruff check src/ tests/ launcher.py build_windows.py)"
+      "Bash(python -m ruff check src/ tests/ launcher.py build_windows.py)",
+      "Bash(timeout 8 ./Artefex.exe)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(taskkill //F //IM python3.11.exe)",
+      "Bash(python launcher.py)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8787/)",
+      "Bash(curl -s -X POST http://localhost:8787/api/analyze -F \"file=@C:\\\\Users\\\\scott\\\\AppData\\\\Local\\\\Temp\\\\tmpboxq8caz.jpg\")",
+      "Bash(python -m json.tool)",
+      "Bash(python -m pytest tests/test_full_coverage.py::TestWebApp -v --tb=short)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/artefex/web.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(python -m ruff check src/artefex/web.py)",
+      "Bash(python -m ruff check src/artefex/inpaint.py src/artefex/analyze.py src/artefex/restore.py)",
+      "Bash(rm _tmp_model_info.txt)",
+      "Bash(python -m pytest tests/test_models.py::test_registry_get_model tests/test_edge_cases.py::TestNeuralPipelineEdgeCases::test_neural_grayscale_through_deblock tests/test_grade.py::test_grade_clean_image tests/test_comprehensive.py::TestQualityGate::test_clean_image_passes -v --tb=short)",
+      "Bash(python -m pytest tests/test_comprehensive.py::TestQualityGate::test_clean_image_passes -v --tb=short)"
     ]
   }
 }

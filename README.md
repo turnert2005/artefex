@@ -2,7 +2,7 @@
 
 # artefex
 
-**Neural forensic restoration - diagnose and reverse media degradation chains.**
+**Forensic image analysis - detect AI content, trace image history, assess quality, and clean artifacts.**
 
 [![CI](https://github.com/turnert2005/artefex/actions/workflows/ci.yml/badge.svg)](https://github.com/turnert2005/artefex/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

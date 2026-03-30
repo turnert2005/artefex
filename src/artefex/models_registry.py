@@ -10,15 +10,15 @@ MODEL_DIR = Path.home() / ".artefex" / "models"
 
 REGISTRY = {
     "deblock-v1": {
-        "name": "DnCNN-3 JPEG Deblocking",
-        "description": "DnCNN-3 multi-task model for JPEG artifact removal (KAIR, MIT)",
+        "name": "FBCNN JPEG Deblocking",
+        "description": "Flexible Blind CNN for JPEG artifact removal with QF-aware restoration (Apache 2.0)",
         "filename": "deblock_v1.onnx",
         "input_size": (256, 256),
-        "channels": 1,
+        "channels": 3,
         "category": "compression",
         "version": "1.0.0",
-        "sha256": "b88dea5f92c4a5c6faf5a26c5da262a50cee84c072dcc6ca025164d1310ae1ad",
-        "size_mb": 2.5,
+        "sha256": "ef6cfa496f4a7dfbe56aa47b10bc5abf087ceabd54def0c72880bf10cc021899",
+        "size_mb": 274.4,
     },
     "denoise-v1": {
         "name": "DnCNN Color Blind Denoiser",
@@ -52,6 +52,17 @@ REGISTRY = {
         "version": "1.0.0",
         "sha256": "",
         "size_mb": 0.0,
+    },
+    "inpaint-v1": {
+        "name": "LaMa Inpainting",
+        "description": "Large Mask Inpainting for repairing physical damage, scratches, tears (Apache 2.0, OpenCV)",
+        "filename": "inpaint_v1.onnx",
+        "input_size": (512, 512),
+        "channels": 3,
+        "category": "inpainting",
+        "version": "1.0.0",
+        "sha256": "",
+        "size_mb": 88.3,
     },
     "aigen-detect-v1": {
         "name": "SAFE AI-Generated Image Detector",

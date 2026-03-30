@@ -45,7 +45,7 @@ def test_registry_get_model():
     registry = ModelRegistry()
     model = registry.get_model("deblock-v1")
     assert model is not None
-    assert model.name == "DnCNN-3 JPEG Deblocking"
+    assert model.name == "FBCNN JPEG Deblocking"
 
 
 def test_registry_get_unknown_model():

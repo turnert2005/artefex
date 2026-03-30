@@ -75,13 +75,17 @@ class RestorationPipeline:
         steps = []
         used_neural = False
 
+        # Use adaptive confidence threshold based on overall severity.
+        # Heavily degraded images (D/F grade) should be cleaned more
+        # aggressively since there's more to gain and less to lose.
+        overall = analysis.overall_severity
+        conf_threshold = 0.3 if overall >= 0.5 else 0.5
+        sev_threshold = 0.15 if overall >= 0.5 else 0.3
+
         for degradation in ordered:
-            # Skip low-confidence detections to avoid false-positive damage.
-            # Also skip mild degradations where restoration may do more
-            # harm than good with classical methods.
-            if degradation.confidence < 0.5:
+            if degradation.confidence < conf_threshold:
                 continue
-            if degradation.severity < 0.3:
+            if degradation.severity < sev_threshold:
                 continue
 
             # Skip non-restorable categories (metadata, provenance)
@@ -95,13 +99,19 @@ class RestorationPipeline:
             ):
                 continue
 
+            # Physical damage detection is informational only.
+            # Inpainting is available but requires user-provided
+            # or manually verified masks to avoid face distortion.
+            if degradation.name == "Physical Damage":
+                continue
+
             # Try neural model for degradations where it measurably
             # outperforms classical methods. Each model has a minimum
             # severity below which classical is better or neutral.
             neural_min_severity = {
-                "compression": 2.0,   # Disabled: DnCNN-3 grayscale oversmoothes RGB
-                "noise": 0.3,         # DnCNN denoise is excellent (+10-20 dB)
-                "resolution": 0.5,    # NAFNet helps moderate+ blur (+0.8-1.2 dB)
+                "compression": 0.15,  # FBCNN: +2.7-4.3 dB across all QF levels
+                "noise": 0.3,         # DnCNN denoise: +10-20 dB
+                "resolution": 0.5,    # NAFNet: +0.6-1.2 dB on moderate blur
             }
             min_sev = neural_min_severity.get(
                 degradation.category, 0.7

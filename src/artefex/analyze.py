@@ -77,6 +77,15 @@ class DegradationAnalyzer:
         except Exception:
             pass
 
+        # Run physical damage detection
+        try:
+            from artefex.inpaint import detect_physical_damage
+            damage_deg = detect_physical_damage(img, arr)
+            if damage_deg:
+                result.degradations.append(damage_deg)
+        except Exception:
+            pass
+
         # Run platform fingerprinting
         try:
             from artefex.fingerprint import detect_platform
