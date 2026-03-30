@@ -56,6 +56,19 @@ def main():
     if port != 8787:
         print(f"Port 8787 was in use, using port {port} instead.")
 
+    # Check for missing models
+    try:
+        from artefex.model_downloader import get_missing_models
+        missing = get_missing_models()
+        if missing:
+            print(f"  Note: {len(missing)} neural model(s) not installed.")
+            print("  The app will work using classical methods.")
+            print("  Run 'python train/convert_pretrained.py --install'")
+            print("  to enable neural restoration.")
+            print()
+    except Exception:
+        pass
+
     print()
     print("=" * 52)
     print(f"  Artefex is running at http://localhost:{port}")

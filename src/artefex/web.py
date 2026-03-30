@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from artefex.analyze import DegradationAnalyzer
+from artefex.models_registry import ModelRegistry
 from artefex.restore import RestorationPipeline
 from artefex.report import render_report
 from artefex.grade import compute_grade
@@ -1016,6 +1017,31 @@ async def api_report(file: UploadFile = File(...)):
         return JSONResponse({"report": report_text})
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+@app.get("/api/models/status")
+async def api_models_status():
+    """Check which models are installed and which are missing."""
+    from artefex.model_downloader import get_missing_models
+
+    registry = ModelRegistry()
+    models = []
+    for m in registry.list_models():
+        models.append({
+            "key": m.key,
+            "name": m.name,
+            "category": m.category,
+            "size_mb": m.size_mb,
+            "available": m.is_available,
+            "trained": m.is_trained,
+        })
+
+    missing = get_missing_models()
+    return JSONResponse({
+        "models": models,
+        "missing": missing,
+        "ready": len(missing) == 0,
+    })
 
 
 def _get_suffix(filename: str) -> str:
