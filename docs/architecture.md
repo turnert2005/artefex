@@ -1,88 +1,48 @@
----
-title: Architecture
----
+# Architecture & Models
 
-# Architecture
+## Overview
 
-## High-level flow
+The Artefex pipeline runs in four main stages, applying targeted ONNX models to assess and reverse media degradation chains.
 
-```
-artefex analyze <image>
-    |
-    v
-+------------------------+
-| 13 Built-in Detectors  |  JPEG, noise, color, resolution, screenshot,
-| + Plugin Detectors     |  watermark, EXIF, platform, AI-gen, stego,
-|                        |  camera ID, copy-move forgery
-+------------------------+
-    |
-    v
-+------------------------+
-| Degradation Chain      |  Sorted by severity, graded A-F
-+------------------------+
-    |
-    v
-+------------------------+
-| Restoration Pipeline   |  Neural (ONNX) -> Plugin -> Classical
-+------------------------+
-    |
-    v
-  restored image + report + heatmap + grade
+```mermaid
+graph TD
+    A[Input Image/Video] --> B[Format & Orientation Detection]
+    B --> C[Degradation Classifier]
+    C --> D[Grade & Quality Scoring]
+    D --> E[Output Report / Restoration]
 ```
 
-## Module organization
+## Model Inventory
 
-```
-src/artefex/
-  cli.py             - Typer CLI (entry point, 31 commands)
-  analyze.py         - DegradationAnalyzer (core detection engine)
-  restore.py         - RestorationPipeline (neural + classical + plugin)
-  models.py          - Degradation and AnalysisResult dataclasses
-  api.py             - Public Python API wrappers
-  grade.py           - A-F quality grading
+Our models are optimized for inference and typically operate on fixed-size tensors (e.g., `256x256x3` or `512x512x3`).
 
-  # Specialized detectors
-  detect_aigen.py    - AI-generated content detection
-  detect_stego.py    - Steganography detection
-  detect_camera.py   - Camera/device identification (PRNU)
-  detect_forgery.py  - Copy-move forgery detection
-  fingerprint.py     - Platform fingerprinting (7 platforms)
+- **`detect_jpeg_blocks.onnx`**
+  - **Purpose:** Detects blocking artifacts from aggressive JPEG compression.
+  - **Input Shape:** `(1, 3, 256, 256)`
+  - **Output:** Float score (0.0 to 1.0) indicating compression severity.
 
-  # Neural inference
-  neural.py          - ONNX inference engine
-  models_registry.py - Model import and management
+- **`chroma_blur.onnx`**
+  - **Purpose:** Identifies chroma subsampling degradation.
+  - **Input Shape:** `(1, 3, 256, 256)`
+  - **Output:** Subsampling probability vector.
 
-  # Output formats
-  report.py          - Plain text reports
-  report_html.py     - Rich HTML reports
-  heatmap.py         - Spatial degradation heatmaps
-  story.py           - Natural language narratives
-  gallery.py         - HTML side-by-side galleries
-  dashboard.py       - Batch analysis dashboards
+- **`stego_detector.onnx`**
+  - **Purpose:** Highlights LSB steganography anomalies.
+  - **Input Shape:** `(1, 1, 512, 512)` (Grayscale analysis)
+  - **Output:** Anomaly confidence map.
 
-  # Infrastructure
-  config.py          - TOML configuration loader
-  plugins.py         - Entry-point plugin system
-  parallel.py        - Multi-process batch processing
-  watch.py           - Directory watcher
-  web.py             - FastAPI web UI
-  video.py           - Video analysis and restoration
-  gif_analyze.py     - GIF/APNG frame analysis
-  similarity.py      - Duplicate detection (pHash, aHash, dHash)
-  orientation.py     - Orientation detection and correction
-  palette.py         - Color palette extraction
-  quality_gate.py    - CI/CD quality gate
-  accessibility.py   - Color accessibility checker
-```
+## Degradation Taxonomy
 
-## Key design decisions
+The system maps artifacts into specific taxonomy classes:
 
-**Diagnosis before treatment** - The `DegradationAnalyzer` always runs first. Restoration decisions are made based on detected degradations, not assumptions.
+- **Compression Artifacts:** JPEG blocking, mosquito noise, quantization errors.
+- **Color Degradation:** Chroma subsampling blur, color banding.
+- **Noise:** Gaussian noise, salt-and-pepper.
+- **Anomalies:** Steganographic LSB manipulation, structural inconsistencies.
 
-**Hybrid restoration** - `RestorationPipeline` tries neural models (ONNX) first for quality, then plugin restorers, then classical signal processing as fallback. No GPU required.
+## Adding a New Artefact Class
 
-**Plugin architecture** - Detectors and restorers can be added via Python entry points without modifying core code. See `examples/custom_plugin.py`.
-
-**Configuration cascade** - `.artefex.toml` (walks up directory tree) -> `[tool.artefex]` in `pyproject.toml` -> `~/.artefex.toml` -> defaults.
-
-**Graceful degradation** - Optional detectors (AI-gen, stego, camera, forgery) load dynamically and fail silently if dependencies are missing.
+1. **Train an ONNX model:** Generate synthetic data and train a classifier (see `train/`). Export as `.onnx`.
+2. **Register the model:** Add the new model path and tensor specifications to `src/artefex/models_registry.py`.
+3. **Add the analysis pipeline:** Create a new detector module in `src/artefex/` (e.g., `detect_new_artifact.py`).
+4. **Update the CLI:** Add the new target flag in `src/artefex/cli.py`.
